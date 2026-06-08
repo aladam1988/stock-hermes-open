@@ -286,8 +286,8 @@
 
       <div class="controls">
         <div class="filter-group">
-          <button id="btn-past" class="filter-btn" type="button">过去 7 天</button>
-          <button id="btn-future" class="filter-btn active" type="button">未来 7 天</button>
+          <button id="btn-past" class="filter-btn active" type="button">过去 7 天</button>
+          <button id="btn-future" class="filter-btn" type="button">未来 7 天</button>
           <button id="btn-all" class="filter-btn" type="button">全部 14 天</button>
         </div>
         <button id="btn-refresh" class="filter-btn" type="button">🔄 刷新</button>
@@ -337,7 +337,7 @@
 
       let currentUser = null;
       let earningsWindow = null;
-      let filter = 'future'; // 'past' | 'future' | 'all'
+      let filter = 'past'; // 'past' | 'future' | 'all'
       let loading = false;
       let refreshing = false;
       const EARNINGS_CACHE_KEY = 'stockHermesEarningsWindow.v1';
