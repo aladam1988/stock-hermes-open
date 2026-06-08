@@ -134,31 +134,71 @@
       }
       .day-card.collapsed .day-toggle { transform: rotate(-90deg); }
       .day-rows {
-        display: flex; flex-direction: column; max-height: 600px; overflow: hidden;
+        display: flex; flex-direction: column; overflow: visible;
         transition: max-height 0.3s ease, opacity 0.2s;
       }
-      .day-card.collapsed .day-rows { max-height: 0; opacity: 0; }
+      .day-card.collapsed .day-rows { max-height: 0; overflow: hidden; opacity: 0; }
 
       /* Each earnings row */
       .erow {
         display: grid;
-        grid-template-columns: 1fr auto auto;
-        gap: 12px; align-items: center;
-        padding: 11px 16px; border-bottom: 1px solid var(--line);
-        font-size: 13px; color: inherit; text-decoration: none;
+        grid-template-rows: auto auto;
+        gap: 12px;
+        padding: 14px 16px; border-bottom: 1px solid var(--line);
+        font-size: 13px; color: inherit;
       }
       .erow:hover { background: #f8fafb; }
       .erow:last-child { border-bottom: 0; }
-
-      .erow-ticker strong { display: block; font-size: 14px; color: var(--text); }
-      .erow-ticker span {
-        display: block; font-size: 11px; color: var(--muted); margin-top: 2px;
-        max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      .erow-main {
+        display: grid;
+        grid-template-columns: minmax(220px, 1fr) auto;
+        gap: 14px; align-items: center;
       }
+      .erow-actions {
+        display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end;
+      }
+      .erow-action {
+        border: 1px solid var(--line); border-radius: 999px; background: var(--surface);
+        color: var(--text); padding: 7px 11px; font-size: 12px; font-weight: 800;
+        cursor: pointer; text-decoration: none; white-space: nowrap;
+      }
+      .erow-action.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+      .erow-action:hover { transform: translateY(-1px); box-shadow: 0 6px 14px rgba(27, 31, 35, 0.08); }
 
-      .erow-meta { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+      .erow-ticker strong { display: block; font-size: 15px; color: var(--text); }
+      .erow-ticker span {
+        display: block; font-size: 12px; color: var(--muted); margin-top: 3px;
+        max-width: 360px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+      .company-zh {
+        display: inline-flex; margin-top: 6px; padding: 3px 8px; border-radius: 999px;
+        background: #e8f4f4; color: var(--accent-dark); font-size: 11px; font-weight: 800;
+      }
+      .company-category {
+        display: inline-flex; margin-top: 6px; margin-left: 6px; padding: 3px 8px; border-radius: 999px;
+        background: var(--surface-2); color: var(--muted); font-size: 11px; font-weight: 800;
+      }
+      .company-desc {
+        margin-top: 7px; max-width: 520px; color: var(--muted); font-size: 12px; line-height: 1.45;
+      }
+      .erow-info {
+        display: grid;
+        grid-template-columns: minmax(300px, 1.4fr) minmax(180px, 0.7fr);
+        gap: 12px; align-items: stretch;
+      }
+      .erow-details {
+        display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)); gap: 8px;
+      }
+      .detail-pill {
+        border: 1px solid var(--line); border-radius: 10px; background: #fbfcfd;
+        padding: 8px 10px; min-height: 48px;
+      }
+      .detail-pill span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+      .detail-pill strong { display: block; color: var(--text); font-size: 13px; }
+
+      .erow-meta { display: flex; flex-direction: column; gap: 7px; align-items: flex-end; }
       .time-chip {
-        display: inline-flex; border-radius: 999px; padding: 3px 9px;
+        display: inline-flex; border-radius: 999px; padding: 4px 10px;
         font-size: 11px; font-weight: 700; white-space: nowrap;
       }
       .time-chip.pre { background: #fff8e1; color: #835400; }
@@ -166,11 +206,8 @@
       .time-chip.unspecified { background: var(--surface-2); color: var(--muted); }
       .marketcap { font-size: 11px; color: var(--muted); white-space: nowrap; }
 
-      .erow-eps { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
-      .eps-forecast { font-size: 12px; color: var(--muted); }
-      .eps-actual { font-size: 13px; color: var(--green); font-weight: 700; }
       .eps-surprise {
-        font-size: 11px; font-weight: 700;
+        font-size: 12px; font-weight: 800;
       }
       .eps-surprise.beat { color: var(--green); }
       .eps-surprise.miss { color: var(--red); }
@@ -199,9 +236,10 @@
       .toast.show { opacity: 1; }
 
       /* Responsive */
-      @media (max-width: 600px) {
-        .erow { grid-template-columns: 1fr auto; }
-        .erow-eps { display: none; }
+      @media (max-width: 760px) {
+        .erow-main, .erow-info { grid-template-columns: 1fr; }
+        .erow-actions, .erow-meta { justify-content: flex-start; align-items: flex-start; }
+        .erow-details { grid-template-columns: repeat(2, minmax(0, 1fr)); }
         .page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
       }
     </style>
@@ -220,7 +258,7 @@
         <form id="auth-form">
           <div class="field">
             <span>用户名</span>
-            <input id="auth-username" type="text" autocomplete="username" placeholder="例如 demo" />
+            <input id="auth-username" type="text" autocomplete="username" placeholder="例如 a1234" />
           </div>
           <div class="field">
             <span>密码</span>
@@ -301,6 +339,9 @@
       let earningsWindow = null;
       let filter = 'future'; // 'past' | 'future' | 'all'
       let loading = false;
+      let refreshing = false;
+      const EARNINGS_CACHE_KEY = 'stockHermesEarningsWindow.v1';
+      const EARNINGS_CACHE_TTL = 5 * 60 * 1000;
 
       // ---- Auth ----
       let authMode = 'login';
@@ -355,7 +396,8 @@
         currentUser = user;
         authScreen.hidden = true;
         appShell.hidden = false;
-        loadEarnings();
+        loadCachedEarnings();
+        loadEarnings({ background: Boolean(earningsWindow) });
       }
 
       function setUnauthenticated() {
@@ -367,11 +409,15 @@
 
       // ---- Filter buttons ----
       daysList.addEventListener('click', async (event) => {
-        const rowLink = event.target.closest('a.erow');
-        if (!rowLink) return;
-        event.preventDefault();
-        const symbol = rowLink.dataset.symbol || '';
-        await openLatestFiling(symbol, rowLink.href);
+        const secButton = event.target.closest('[data-action="sec"]');
+        if (secButton) {
+          await openLatestFiling(secButton.dataset.symbol || '', secButton.dataset.fallbackUrl || '');
+          return;
+        }
+        const analyzeButton = event.target.closest('[data-action="analyze"]');
+        if (analyzeButton) {
+          goAnalyzeEarnings(analyzeButton.dataset.symbol || '', analyzeButton.dataset.name || '');
+        }
       });
 
       [btnPast, btnFuture, btnAll].forEach(btn => {
@@ -382,7 +428,7 @@
         });
       });
 
-      btnRefresh.addEventListener('click', loadEarnings);
+      btnRefresh.addEventListener('click', () => loadEarnings({ force: true }));
 
       function updateFilterButtons() {
         btnPast.classList.toggle('active', filter === 'past');
@@ -423,7 +469,8 @@
         const total = earningsWindow.total;
         const source = earningsWindow.source || 'Nasdaq';
 
-        metaLine.textContent = `数据来源：${source} · ${filterLabel()} · 共 ${rows.length} 家 · ${earningsWindow.startDate} 至 ${earningsWindow.endDate}`;
+        const cacheHint = refreshing ? ' · 后台更新中…' : (earningsWindow.cached ? ' · 已用本地缓存秒开' : '');
+        metaLine.textContent = `数据来源：${source} · ${filterLabel()} · 共 ${rows.length} 家 · ${earningsWindow.startDate} 至 ${earningsWindow.endDate}${cacheHint}`;
         showState('ok');
 
         if (!rows.length) {
@@ -482,47 +529,79 @@
         const timeClass = timeMap[row.timeLabel] || 'unspecified';
         const symbol = encodeURIComponent(row.symbol || '');
         const filingUrl = `https://www.sec.gov/edgar/search/#/q=${symbol}&category=custom&forms=6-K%252C20-F%252C10-Q%252C10-K%252C8-K`;
-
-        let epsHtml = '';
-        if (row.epsForecast) {
-          epsHtml += `<span class="eps-forecast">预期 ${row.epsForecast}</span>`;
-        }
-        if (row.eps != null) {
-          const surprise = computeSurprise(row.eps, row.epsForecast);
-          if (surprise !== null) {
-            const cls = surprise > 0 ? 'beat' : surprise < 0 ? 'miss' : 'in-line';
-            const sign = surprise > 0 ? '+' : '';
-            epsHtml += `<span class="eps-surprise ${cls}">${sign}${surprise.toFixed(2)}%</span>`;
-          }
-        }
+        const surprise = computeSurprise(row.eps, row.epsForecast);
+        const surpriseHtml = surprise === null
+          ? '<strong>待公布</strong>'
+          : `<strong class="eps-surprise ${surprise > 0 ? 'beat' : surprise < 0 ? 'miss' : 'in-line'}">${surprise > 0 ? '+' : ''}${surprise.toFixed(1)}%</strong>`;
+        const eventLabel = row.eps ? '已披露' : '待披露';
+        const nameZh = row.nameZh ? `<span class="company-zh">${escapeHtml(row.nameZh)}</span>` : '';
+        const category = row.category ? `<span class="company-category">${escapeHtml(row.category)}</span>` : '';
+        const description = row.description ? `<p class="company-desc">${escapeHtml(row.description)}</p>` : '';
 
         return `
-          <a class="erow" href="${filingUrl}" data-symbol="${row.symbol}" target="_blank" rel="noopener noreferrer" title="打开 ${row.symbol} 的最新 SEC 官方披露">
-            <div class="erow-ticker">
-              <strong>${row.symbol}</strong>
-              <span>${row.name}</span>
+          <div class="erow" data-symbol="${row.symbol}">
+            <div class="erow-main">
+              <div class="erow-ticker">
+                <strong>${escapeHtml(row.symbol)}</strong>
+                <span>${escapeHtml(row.name || '公司名称待补充')}</span>
+                <div>${nameZh}${category}</div>
+                ${description}
+              </div>
+              <div class="erow-actions">
+                <button class="erow-action primary" type="button" data-action="analyze" data-symbol="${row.symbol}" data-name="${escapeAttr(row.name || '')}">财报分析</button>
+                <button class="erow-action" type="button" data-action="sec" data-symbol="${row.symbol}" data-fallback-url="${filingUrl}">打开最新 SEC 披露</button>
+              </div>
             </div>
-            <div class="erow-meta">
-              <span class="time-chip ${timeClass}">${row.timeLabel}</span>
-              ${row.marketCap ? `<span class="marketcap">${row.marketCap}</span>` : ''}
+            <div class="erow-info">
+              <div class="erow-details">
+                <div class="detail-pill"><span>预期 EPS</span><strong>${row.epsForecast || '暂无'}</strong></div>
+                <div class="detail-pill"><span>实际 EPS</span><strong>${row.eps || (row.timeLabel === '未注明' ? '待确认' : '待公布')}</strong></div>
+                <div class="detail-pill"><span>超预期幅度</span>${surpriseHtml}</div>
+                <div class="detail-pill"><span>财季截止</span><strong>${row.fiscalQuarterEnding || '暂无'}</strong></div>
+              </div>
+              <div class="erow-meta">
+                <span class="time-chip ${timeClass}">${eventLabel} · ${row.timeLabel}</span>
+                ${row.marketCap ? `<span class="marketcap">市值 ${row.marketCap}</span>` : '<span class="marketcap">市值暂无</span>'}
+                <span class="marketcap">${row.source || 'Nasdaq earnings calendar'}</span>
+              </div>
             </div>
-            <div class="erow-eps">${epsHtml}</div>
-          </a>
+          </div>
         `;
       }
 
       function computeSurprise(actual, forecast) {
-        if (actual == null || !forecast) return null;
+        const av = parseEps(actual);
         const fv = parseEps(forecast);
-        if (fv === null || fv === 0) return null;
-        return ((actual - fv) / Math.abs(fv)) * 100;
+        if (av === null || fv === null || fv === 0) return null;
+        return ((av - fv) / Math.abs(fv)) * 100;
       }
 
-      function parseEps(s) {
-        if (!s) return null;
-        s = s.trim().replace('$', '').replace('(', '-').replace(')', '');
-        const n = parseFloat(s);
-        return isNaN(n) ? null : n;
+      function parseEps(value) {
+        if (value == null) return null;
+        const text = String(value).trim();
+        if (!text || text === '-' || text === '--' || text === '暂无') return null;
+        const normalized = text.replace(/[$,]/g, '').replace(/^\((.*)\)$/, '-$1');
+        const n = parseFloat(normalized);
+        return Number.isFinite(n) ? n : null;
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      function escapeAttr(value) {
+        return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+
+      function goAnalyzeEarnings(symbol, name) {
+        if (!symbol) return;
+        const question = `${symbol} ${name ? `（${name}）` : ''} 最近要发财报，请结合财报日历、预期 EPS、财季、市值、真实行情和最新 SEC/公司披露，分析这家公司本次财报最应该关注什么、可能的超预期/低预期点、估值风险和接下来需要验证的问题。不要给买卖建议，只做观察池研究。`;
+        window.location.href = `./index.html?ask=${encodeURIComponent(question)}&ticker=${encodeURIComponent(symbol)}`;
       }
 
       async function openLatestFiling(symbol, fallbackUrl) {
@@ -537,20 +616,58 @@
       }
 
       // ---- Load ----
-      async function loadEarnings() {
+      function loadCachedEarnings() {
+        try {
+          const cached = JSON.parse(sessionStorage.getItem(EARNINGS_CACHE_KEY) || 'null');
+          if (!cached || !cached.payload || Date.now() - cached.savedAt > EARNINGS_CACHE_TTL) return false;
+          earningsWindow = { ...cached.payload, cached: true };
+          loading = false;
+          renderEarnings();
+          return true;
+        } catch {
+          sessionStorage.removeItem(EARNINGS_CACHE_KEY);
+          return false;
+        }
+      }
+
+      function saveCachedEarnings(payload) {
+        try {
+          sessionStorage.setItem(EARNINGS_CACHE_KEY, JSON.stringify({ savedAt: Date.now(), payload }));
+        } catch {
+          // ignore storage limits/private mode
+        }
+      }
+
+      async function loadEarnings(options = {}) {
         if (!currentUser) return;
-        loading = true;
+        const { background = false, force = false } = options;
+        if (loading || refreshing) return;
+        const cachedOk = !force && !background && loadCachedEarnings();
+        if (cachedOk) {
+          loadEarnings({ background: true });
+          return;
+        }
+
+        loading = !background;
+        refreshing = background;
         renderEarnings();
         try {
-          const resp = await fetch('/api/earnings?daysBack=7&daysForward=7');
+          const cacheBust = force ? `&refresh=${Date.now()}` : '';
+          const resp = await fetch(`/api/earnings?daysBack=7&daysForward=7${cacheBust}`);
           const data = await resp.json().catch(() => ({}));
           if (!resp.ok || !data.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-          earningsWindow = data;
+          earningsWindow = { ...data, cached: false };
+          saveCachedEarnings(data);
         } catch (err) {
-          earningsWindow = null;
-          errorMsg.textContent = err.message || '请检查网络后重试';
+          if (!earningsWindow) {
+            earningsWindow = null;
+            errorMsg.textContent = err.message || '请检查网络后重试';
+          } else {
+            showToast('后台更新失败，继续显示已缓存日历');
+          }
         } finally {
           loading = false;
+          refreshing = false;
           renderEarnings();
         }
       }

@@ -606,6 +606,8 @@ def clean_earnings_date(value: str | None, fallback: date | None = None) -> date
 SEC_TICKER_MAP_CACHE: dict[str, Any] = {"loaded_at": 0.0, "symbols": {}}
 SEC_TICKER_MAP_TTL = 60 * 60 * 24
 SEC_FORMS_PRIORITY = {"6-K", "20-F", "10-Q", "10-K", "8-K"}
+EARNINGS_WINDOW_CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}
+EARNINGS_WINDOW_TTL = 10 * 60
 
 
 def sec_user_agent() -> str:
@@ -694,6 +696,81 @@ def sec_search_url(symbol: str) -> str:
     return f"https://www.sec.gov/edgar/search/#/q={ticker}&category=custom&forms=6-K%252C20-F%252C10-Q%252C10-K%252C8-K"
 
 
+COMPANY_METADATA: dict[str, dict[str, str]] = {
+    "HPE": {
+        "nameZh": "慧与科技",
+        "category": "企业 IT / 服务器 / 混合云",
+        "description": "企业级服务器、存储、网络和混合云基础设施公司，和 AI 服务器需求相关。",
+    },
+    "CRDO": {
+        "nameZh": "Credo 科技",
+        "category": "半导体 / 高速互连芯片",
+        "description": "面向 AI 数据中心和高速网络的 SerDes、AEC 有源线缆和连接芯片供应商。",
+    },
+    "FRHC": {
+        "nameZh": "自由控股",
+        "category": "金融服务 / 券商",
+        "description": "覆盖中亚、欧洲和美国市场的经纪、投行和资本市场服务公司。",
+    },
+    "SAIC": {
+        "nameZh": "科学应用国际公司",
+        "category": "政府 IT 服务 / 国防承包",
+        "description": "为美国政府和国防客户提供 IT、工程、数字化和任务支持服务。",
+    },
+    "KEN": {
+        "nameZh": "凯能控股",
+        "category": "控股公司 / 能源与航运",
+        "description": "以色列控股公司，资产涉及电力、能源相关业务和航运投资。",
+    },
+    "GMRS": {
+        "nameZh": "GMR Solutions",
+        "category": "小盘股 / 待核实",
+        "description": "小市值公司，公开资料有限，财报分析前需要优先核实主营业务和披露文件。",
+    },
+    "GLSI": {
+        "nameZh": "格林威治生命科学",
+        "category": "生物医药 / 肿瘤疫苗",
+        "description": "临床阶段生物技术公司，核心方向是乳腺癌相关免疫治疗候选产品。",
+    },
+    "BRID": {
+        "nameZh": "布里奇福德食品",
+        "category": "食品 / 冷冻与休闲食品",
+        "description": "食品制造商，产品包括冷冻面包、加工肉类和休闲食品。",
+    },
+}
+
+
+def earnings_metadata_for(symbol: str, company: str) -> dict[str, str]:
+    ticker = (symbol or "").upper().strip()
+    if ticker in COMPANY_METADATA:
+        return COMPANY_METADATA[ticker]
+
+    text = f"{ticker} {company}".lower()
+    if any(word in text for word in ["semiconductor", "technology", "micro", "chip", "network"]):
+        return {
+            "nameZh": "",
+            "category": "科技 / 半导体相关",
+            "description": "科技或半导体相关公司，建议结合主营业务、客户结构和资本开支周期继续核实。",
+        }
+    if any(word in text for word in ["bank", "financial", "capital", "holding"]):
+        return {
+            "nameZh": "",
+            "category": "金融 / 控股",
+            "description": "金融或控股类公司，财报重点看资产质量、利差、交易收入和资本充足情况。",
+        }
+    if any(word in text for word in ["bio", "pharma", "life", "therapeutics", "sciences"]):
+        return {
+            "nameZh": "",
+            "category": "医疗 / 生物医药",
+            "description": "医疗或生物医药公司，财报之外还要重点看临床进展、现金 runway 和监管节点。",
+        }
+    return {
+        "nameZh": "",
+        "category": "待分类",
+        "description": "Nasdaq 日历未提供足够业务简介，建议打开 SEC 披露后再确认主营业务。",
+    }
+
+
 def clean_earnings_row(row: dict[str, Any], target_date: date) -> dict[str, Any]:
     symbol = str(row.get("symbol") or "").strip().upper()
     company = str(row.get("name") or row.get("companyName") or symbol).strip()
@@ -706,10 +783,14 @@ def clean_earnings_row(row: dict[str, Any], target_date: date) -> dict[str, Any]
         "after-hours": "盘后",
     }
     time_label = time_label_map.get(raw_time, raw_time or "未注明")
+    metadata = earnings_metadata_for(symbol, company)
     return {
         "date": target_date.isoformat(),
         "symbol": symbol,
         "name": company,
+        "nameZh": metadata.get("nameZh", ""),
+        "category": metadata.get("category", "待分类"),
+        "description": metadata.get("description", ""),
         "time": raw_time or "time-not-supplied",
         "timeLabel": time_label,
         "epsForecast": row.get("epsForecast") or "",
@@ -749,10 +830,19 @@ def fetch_earnings_for_date(target_date: date) -> dict[str, Any]:
         return {"date": target_date.isoformat(), "ok": False, "error": str(exc), "count": 0, "rows": []}
 
 
-def fetch_earnings_window(days_back: int = 7, days_forward: int = 7, anchor: date | None = None) -> dict[str, Any]:
+def fetch_earnings_window(days_back: int = 7, days_forward: int = 7, anchor: date | None = None, force_refresh: bool = False) -> dict[str, Any]:
     anchor = anchor or date.today()
     days_back = min(max(int(days_back), 0), 30)
     days_forward = min(max(int(days_forward), 0), 30)
+    cache_key = (anchor.isoformat(), days_back, days_forward)
+    now = time.time()
+    cached = EARNINGS_WINDOW_CACHE.get(cache_key)
+    if cached and not force_refresh and now - float(cached.get("loaded_at", 0)) < EARNINGS_WINDOW_TTL:
+        payload = dict(cached["payload"])
+        payload["cached"] = True
+        payload["cacheAgeSeconds"] = int(now - float(cached.get("loaded_at", now)))
+        return payload
+
     start = anchor - timedelta(days=days_back)
     end = anchor + timedelta(days=days_forward)
     all_dates = []
@@ -765,7 +855,7 @@ def fetch_earnings_window(days_back: int = 7, days_forward: int = 7, anchor: dat
         day_results = list(pool.map(fetch_earnings_for_date, all_dates))
 
     rows = [row for day in day_results for row in day.get("rows", [])]
-    return {
+    payload = {
         "ok": True,
         "source": "Nasdaq earnings calendar",
         "anchorDate": anchor.isoformat(),
@@ -775,7 +865,11 @@ def fetch_earnings_window(days_back: int = 7, days_forward: int = 7, anchor: dat
         "daysForward": days_forward,
         "total": len(rows),
         "rows": rows,
+        "cached": False,
+        "cacheAgeSeconds": 0,
     }
+    EARNINGS_WINDOW_CACHE[cache_key] = {"loaded_at": time.time(), "payload": payload}
+    return payload
 
 
 def clean_market(value: str) -> str:
@@ -1294,7 +1388,8 @@ class Handler(SimpleHTTPRequestHandler):
                 anchor = clean_earnings_date((qs.get("date") or [""])[0])
                 days_back = int((qs.get("daysBack") or qs.get("past") or ["7"])[0])
                 days_forward = int((qs.get("daysForward") or qs.get("future") or ["7"])[0])
-                payload = fetch_earnings_window(days_back=days_back, days_forward=days_forward, anchor=anchor)
+                force_refresh = bool(qs.get("refresh"))
+                payload = fetch_earnings_window(days_back=days_back, days_forward=days_forward, anchor=anchor, force_refresh=force_refresh)
                 self.send_json(200, payload)
             except Exception as exc:
                 self.send_json(500, {"ok": False, "error": str(exc)})
