@@ -1,0 +1,36 @@
+# Python / local runtime
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node / build artifacts
+node_modules/
+dist/
+build/
+
+# Local secrets / config overrides
+.env
+.env.*
+!.env.example
+*.local
+config.yaml
+config.yml
+auth.json
+credentials.json
+token.json
+
+# Local database and sessions
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+
+# Logs / OS files
+*.log
+.DS_Store
+
+# Local auth QR / screenshots
+*lark*auth*qrcode*.png
+*qrcode*.png
+screenshots/

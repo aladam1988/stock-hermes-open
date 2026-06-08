@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Hermes 设置 · AI股票研究助手</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="settings-page authenticated">
+    <main class="settings-shell">
+      <header class="settings-header">
+        <div>
+          <p class="eyebrow">Hermes Settings</p>
+          <h1>Hermes 设置</h1>
+          <p>查看这个股票研究助手背后的 Hermes 模型、记忆、存储与安全状态。</p>
+        </div>
+        <div class="settings-actions">
+          <a class="ghost-link" href="./index.html">← 返回研究台</a>
+          <button id="refresh-settings" class="primary-button" type="button">刷新</button>
+        </div>
+      </header>
+
+      <section id="settings-status" class="settings-status">正在读取 Hermes 设置...</section>
+
+      <section class="settings-grid">
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Hermes Memory</p>
+          <h2>记忆系统</h2>
+          <div id="memory-list" class="memory-list"></div>
+        </article>
+
+        <article class="settings-card">
+          <p class="eyebrow">Model Routing</p>
+          <h2>模型路由</h2>
+          <div id="model-routing" class="settings-list"></div>
+        </article>
+
+        <article class="settings-card">
+          <p class="eyebrow">Hermes Core</p>
+          <h2>Hermes 核心</h2>
+          <div id="hermes-core" class="settings-list"></div>
+        </article>
+
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Memory</p>
+          <h2>记忆系统</h2>
+          <div class="memory-explainer">
+            <div>
+              <strong>短期记忆</strong>
+              <p id="short-memory">--</p>
+            </div>
+            <div>
+              <strong>长期记忆</strong>
+              <p id="long-memory">--</p>
+            </div>
+          </div>
+          <div id="memory-files" class="settings-list file-list"></div>
+        </article>
+
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Storage</p>
+          <h2>本地存储</h2>
+          <div id="storage-info" class="settings-list"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="./settings.js?v=20260607-1"></script>
+  </body>
+</html>

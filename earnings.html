@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>美股财报日历</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f3f5f7;
+        --surface: #ffffff;
+        --surface-2: #eef3f6;
+        --surface-3: #f8fafb;
+        --text: #172027;
+        --muted: #66737d;
+        --line: #d9e0e5;
+        --accent: #0f8b8d;
+        --accent-dark: #0b6769;
+        --orange: #d8572a;
+        --green: #16835f;
+        --red: #bd3d36;
+        --yellow: #a06a00;
+        --shadow: 0 16px 38px rgba(31, 43, 52, 0.08);
+        --radius: 10px;
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      [hidden] { display: none !important; }
+      body { min-height: 100vh; background: var(--bg); color: var(--text); }
+
+      /* Auth */
+      .auth-screen {
+        display: flex; align-items: center; justify-content: center; min-height: 100vh;
+        padding: 20px;
+      }
+      .auth-card {
+        background: var(--surface); border-radius: var(--radius); box-shadow: var(--shadow);
+        padding: 36px; width: 100%; max-width: 380px;
+      }
+      .auth-card h1 { font-size: 22px; margin: 0 0 6px; }
+      .auth-card p { color: var(--muted); font-size: 14px; margin: 0 0 24px; }
+      .auth-tabs { display: flex; gap: 4px; margin-bottom: 20px; }
+      .auth-tabs button {
+        flex: 1; min-height: 38px; border-radius: 7px; background: var(--surface-2);
+        color: var(--text); font-size: 14px; font-weight: 700; border: 0; cursor: pointer;
+      }
+      .auth-tabs button.active { background: var(--text); color: #fff; }
+      .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+      .field span { font-size: 13px; font-weight: 700; color: var(--muted); }
+      input {
+        width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 7px;
+        background: #fff; color: var(--text); padding: 0 11px; font-size: 15px;
+      }
+      input:focus { outline: none; border-color: var(--accent); }
+      button.submit-btn {
+        width: 100%; min-height: 42px; border-radius: 7px; background: var(--text);
+        color: #fff; font-size: 15px; font-weight: 700; border: 0; cursor: pointer;
+        margin-top: 8px;
+      }
+      button.submit-btn:hover { background: #263540; }
+      .auth-error { color: var(--red); font-size: 13px; margin-top: 10px; min-height: 18px; }
+
+      /* App shell */
+      .app-shell { max-width: 860px; margin: 0 auto; padding: 28px 20px 60px; }
+
+      /* Header */
+      .page-header {
+        display: flex; align-items: center; justify-content: space-between;
+        margin-bottom: 24px;
+      }
+      .brand { display: flex; align-items: center; gap: 12px; }
+      .brand-mark {
+        width: 38px; height: 38px; border-radius: 9px; background: var(--text);
+        color: #fff; font-size: 20px; font-weight: 900; display: flex;
+        align-items: center; justify-content: center;
+      }
+      .brand h1 { font-size: 20px; margin: 0; }
+      .brand p { font-size: 12px; color: var(--muted); margin: 2px 0 0; }
+      .back-link {
+        display: inline-flex; align-items: center; gap: 6px;
+        color: var(--muted); text-decoration: none; font-size: 13px;
+        padding: 6px 12px; border-radius: 7px; border: 1px solid var(--line);
+        background: var(--surface);
+      }
+      .back-link:hover { color: var(--text); border-color: var(--text); }
+
+      /* Filter controls */
+      .controls {
+        display: flex; align-items: center; justify-content: space-between;
+        flex-wrap: wrap; gap: 10px; margin-bottom: 16px;
+      }
+      .filter-group { display: flex; gap: 6px; }
+      .filter-btn {
+        min-height: 34px; padding: 0 14px; border-radius: 999px;
+        background: var(--surface-2); color: var(--text); font-size: 13px;
+        font-weight: 700; border: 1px solid var(--line); cursor: pointer;
+      }
+      .filter-btn:hover { border-color: var(--accent); color: var(--accent); }
+      .filter-btn.active {
+        background: var(--text); color: #fff; border-color: var(--text);
+      }
+      .meta-line {
+        font-size: 12px; color: var(--muted); padding: 8px 12px;
+        background: var(--surface-3); border-radius: 7px;
+      }
+
+      /* Days accordion */
+      .days-list { display: flex; flex-direction: column; gap: 10px; }
+
+      .day-card {
+        border: 1px solid var(--line); border-radius: var(--radius);
+        background: var(--surface); overflow: hidden;
+      }
+      .day-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 16px; background: var(--surface-3);
+        border-bottom: 1px solid var(--line); cursor: pointer;
+        user-select: none;
+      }
+      .day-header:hover { background: #eef3f6; }
+      .day-header-left { display: flex; align-items: center; gap: 10px; }
+      .day-badge {
+        padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 700;
+      }
+      .day-badge.today { background: var(--accent); color: #fff; }
+      .day-badge.past { background: var(--surface-2); color: var(--muted); }
+      .day-badge.future { background: #e8f4f4; color: var(--accent-dark); }
+      .day-label { font-size: 15px; font-weight: 700; }
+      .day-count { font-size: 12px; color: var(--muted); }
+      .day-toggle {
+        width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--line);
+        background: var(--surface); display: flex; align-items: center; justify-content: center;
+        font-size: 16px; color: var(--muted); transition: transform 0.2s;
+      }
+      .day-card.collapsed .day-toggle { transform: rotate(-90deg); }
+      .day-rows {
+        display: flex; flex-direction: column; max-height: 600px; overflow: hidden;
+        transition: max-height 0.3s ease, opacity 0.2s;
+      }
+      .day-card.collapsed .day-rows { max-height: 0; opacity: 0; }
+
+      /* Each earnings row */
+      .erow {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        gap: 12px; align-items: center;
+        padding: 11px 16px; border-bottom: 1px solid var(--line);
+        font-size: 13px; color: inherit; text-decoration: none;
+      }
+      .erow:hover { background: #f8fafb; }
+      .erow:last-child { border-bottom: 0; }
+
+      .erow-ticker strong { display: block; font-size: 14px; color: var(--text); }
+      .erow-ticker span {
+        display: block; font-size: 11px; color: var(--muted); margin-top: 2px;
+        max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      }
+
+      .erow-meta { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+      .time-chip {
+        display: inline-flex; border-radius: 999px; padding: 3px 9px;
+        font-size: 11px; font-weight: 700; white-space: nowrap;
+      }
+      .time-chip.pre { background: #fff8e1; color: #835400; }
+      .time-chip.post { background: #f3e5ff; color: #6a3a8c; }
+      .time-chip.unspecified { background: var(--surface-2); color: var(--muted); }
+      .marketcap { font-size: 11px; color: var(--muted); white-space: nowrap; }
+
+      .erow-eps { display: flex; flex-direction: column; gap: 3px; align-items: flex-end; }
+      .eps-forecast { font-size: 12px; color: var(--muted); }
+      .eps-actual { font-size: 13px; color: var(--green); font-weight: 700; }
+      .eps-surprise {
+        font-size: 11px; font-weight: 700;
+      }
+      .eps-surprise.beat { color: var(--green); }
+      .eps-surprise.miss { color: var(--red); }
+      .eps-surprise.in-line { color: var(--yellow); }
+
+      /* Loading / empty */
+      .state-card {
+        border: 1px solid var(--line); border-radius: var(--radius);
+        background: var(--surface); padding: 48px 24px; text-align: center;
+      }
+      .state-card h3 { font-size: 16px; margin: 0 0 8px; }
+      .state-card p { color: var(--muted); font-size: 13px; margin: 0; }
+      .spinner {
+        width: 36px; height: 36px; border: 3px solid var(--line); border-top-color: var(--accent);
+        border-radius: 50%; animation: spin 0.8s linear infinite; margin: 0 auto 16px;
+      }
+      @keyframes spin { to { transform: rotate(360deg); } }
+
+      /* Toast */
+      .toast {
+        position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+        background: var(--text); color: #fff; padding: 10px 20px; border-radius: 999px;
+        font-size: 13px; font-weight: 700; opacity: 0; transition: opacity 0.2s;
+        pointer-events: none; z-index: 9999;
+      }
+      .toast.show { opacity: 1; }
+
+      /* Responsive */
+      @media (max-width: 600px) {
+        .erow { grid-template-columns: 1fr auto; }
+        .erow-eps { display: none; }
+        .page-header { flex-direction: column; align-items: flex-start; gap: 12px; }
+      }
+    </style>
+  </head>
+  <body>
+
+    <!-- Auth screen -->
+    <div id="auth-screen" class="auth-screen">
+      <div class="auth-card">
+        <h1>美股财报日历</h1>
+        <p>登录后查看近期美股财报公布日期</p>
+        <div class="auth-tabs">
+          <button id="login-tab" class="active" type="button">登录</button>
+          <button id="register-tab" type="button">注册</button>
+        </div>
+        <form id="auth-form">
+          <div class="field">
+            <span>用户名</span>
+            <input id="auth-username" type="text" autocomplete="username" placeholder="例如 demo" />
+          </div>
+          <div class="field">
+            <span>密码</span>
+            <input id="auth-password" type="password" autocomplete="current-password" placeholder="至少 6 位" />
+          </div>
+          <button id="auth-submit" class="submit-btn" type="submit">登录</button>
+          <p id="auth-error" class="auth-error"></p>
+        </form>
+      </div>
+    </div>
+
+    <!-- Main app -->
+    <div id="app-shell" class="app-shell" hidden>
+
+      <header class="page-header">
+        <div class="brand">
+          <div class="brand-mark">H</div>
+          <div>
+            <h1>美股财报日历</h1>
+            <p>Nasdaq Earnings Calendar · 延迟数据</p>
+          </div>
+        </div>
+        <a class="back-link" href="./index.html">← 返回研究台</a>
+      </header>
+
+      <div class="controls">
+        <div class="filter-group">
+          <button id="btn-past" class="filter-btn" type="button">过去 7 天</button>
+          <button id="btn-future" class="filter-btn active" type="button">未来 7 天</button>
+          <button id="btn-all" class="filter-btn" type="button">全部 14 天</button>
+        </div>
+        <button id="btn-refresh" class="filter-btn" type="button">🔄 刷新</button>
+      </div>
+
+      <div id="meta-line" class="meta-line" hidden></div>
+
+      <div id="loading-state" class="state-card">
+        <div class="spinner"></div>
+        <h3>正在加载财报日历</h3>
+        <p>从 Nasdaq 获取数据，请稍候…</p>
+      </div>
+
+      <div id="error-state" class="state-card" hidden>
+        <h3>加载失败</h3>
+        <p id="error-msg">请检查网络后重试</p>
+      </div>
+
+      <div id="days-list" class="days-list"></div>
+
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+      const authScreen = document.getElementById('auth-screen');
+      const appShell = document.getElementById('app-shell');
+      const authForm = document.getElementById('auth-form');
+      const authUsername = document.getElementById('auth-username');
+      const authPassword = document.getElementById('auth-password');
+      const authSubmit = document.getElementById('auth-submit');
+      const authError = document.getElementById('auth-error');
+      const loginTab = document.getElementById('login-tab');
+      const registerTab = document.getElementById('register-tab');
+
+      const btnPast = document.getElementById('btn-past');
+      const btnFuture = document.getElementById('btn-future');
+      const btnAll = document.getElementById('btn-all');
+      const btnRefresh = document.getElementById('btn-refresh');
+
+      const metaLine = document.getElementById('meta-line');
+      const loadingState = document.getElementById('loading-state');
+      const errorState = document.getElementById('error-state');
+      const errorMsg = document.getElementById('error-msg');
+      const daysList = document.getElementById('days-list');
+      const toastEl = document.getElementById('toast');
+
+      let currentUser = null;
+      let earningsWindow = null;
+      let filter = 'future'; // 'past' | 'future' | 'all'
+      let loading = false;
+
+      // ---- Auth ----
+      let authMode = 'login';
+
+      function setAuthMode(mode) {
+        authMode = mode;
+        loginTab.classList.toggle('active', mode === 'login');
+        registerTab.classList.toggle('active', mode === 'register');
+        authSubmit.textContent = mode === 'login' ? '登录' : '注册并登录';
+        authPassword.autocomplete = mode === 'login' ? 'current-password' : 'new-password';
+        authError.textContent = '';
+      }
+
+      loginTab.addEventListener('click', () => setAuthMode('login'));
+      registerTab.addEventListener('click', () => setAuthMode('register'));
+
+      authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const username = authUsername.value.trim();
+        const password = authPassword.value;
+        authError.textContent = '';
+        authSubmit.disabled = true;
+        try {
+          const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
+          const resp = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ username, password }),
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+          authPassword.value = '';
+          setAuthenticated(data.user);
+          showToast(authMode === 'login' ? '登录成功' : '注册成功');
+        } catch (err) {
+          authError.textContent = err.message || String(err);
+        } finally {
+          authSubmit.disabled = false;
+        }
+      });
+
+      async function initAuth() {
+        try {
+          const resp = await fetch('/api/auth/me');
+          const data = await resp.json();
+          if (data.ok && data.user) { setAuthenticated(data.user); return; }
+        } catch {}
+        setUnauthenticated();
+      }
+
+      function setAuthenticated(user) {
+        currentUser = user;
+        authScreen.hidden = true;
+        appShell.hidden = false;
+        loadEarnings();
+      }
+
+      function setUnauthenticated() {
+        currentUser = null;
+        authScreen.hidden = false;
+        appShell.hidden = true;
+        setAuthMode('login');
+      }
+
+      // ---- Filter buttons ----
+      daysList.addEventListener('click', async (event) => {
+        const rowLink = event.target.closest('a.erow');
+        if (!rowLink) return;
+        event.preventDefault();
+        const symbol = rowLink.dataset.symbol || '';
+        await openLatestFiling(symbol, rowLink.href);
+      });
+
+      [btnPast, btnFuture, btnAll].forEach(btn => {
+        btn.addEventListener('click', () => {
+          filter = btn === btnPast ? 'past' : btn === btnFuture ? 'future' : 'all';
+          updateFilterButtons();
+          renderEarnings();
+        });
+      });
+
+      btnRefresh.addEventListener('click', loadEarnings);
+
+      function updateFilterButtons() {
+        btnPast.classList.toggle('active', filter === 'past');
+        btnFuture.classList.toggle('active', filter === 'future');
+        btnAll.classList.toggle('active', filter === 'all');
+      }
+
+      function filterLabel() {
+        if (filter === 'past') return '过去 7 天';
+        if (filter === 'future') return '未来 7 天';
+        return '全部 14 天';
+      }
+
+      function filteredRows() {
+        if (!earningsWindow) return [];
+        const anchor = new Date(earningsWindow.anchorDate || Date.now());
+        const rows = earningsWindow.rows || [];
+        if (filter === 'all') return rows;
+        return rows.filter(row => {
+          const d = new Date(row.date);
+          return filter === 'future' ? d >= anchor : d < anchor;
+        });
+      }
+
+      // ---- Render ----
+      function showState(state) {
+        loadingState.hidden = state !== 'loading';
+        errorState.hidden = state !== 'error';
+        daysList.hidden = state !== 'ok';
+        metaLine.hidden = state !== 'ok';
+      }
+
+      function renderEarnings() {
+        if (loading) { showState('loading'); return; }
+        if (!earningsWindow || !earningsWindow.ok) { showState('error'); return; }
+
+        const rows = filteredRows();
+        const total = earningsWindow.total;
+        const source = earningsWindow.source || 'Nasdaq';
+
+        metaLine.textContent = `数据来源：${source} · ${filterLabel()} · 共 ${rows.length} 家 · ${earningsWindow.startDate} 至 ${earningsWindow.endDate}`;
+        showState('ok');
+
+        if (!rows.length) {
+          daysList.innerHTML = `<div class="state-card"><h3>无财报</h3><p>该区间内暂无财报公布</p></div>`;
+          return;
+        }
+
+        // Group by date
+        const byDate = {};
+        rows.forEach(row => {
+          if (!byDate[row.date]) byDate[row.date] = [];
+          byDate[row.date].push(row);
+        });
+
+        daysList.innerHTML = '';
+        Object.keys(byDate).sort().forEach(date => {
+          const dayRows = byDate[date];
+          const dateObj = new Date(date);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const isToday = dateObj.getTime() === today.getTime();
+          const isPast = dateObj < today;
+
+          let badgeClass, badgeText;
+          if (isToday) { badgeClass = 'today'; badgeText = '今天'; }
+          else if (isPast) { badgeClass = 'past'; badgeText = '过去'; }
+          else { badgeClass = 'future'; badgeText = '未来'; }
+
+          const dayLabel = isToday ? '今天' : dateObj.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric', weekday: 'short' });
+
+          const card = document.createElement('div');
+          card.className = 'day-card';
+          card.innerHTML = `
+            <div class="day-header" data-date="${date}">
+              <div class="day-header-left">
+                <span class="day-badge ${badgeClass}">${badgeText}</span>
+                <span class="day-label">${dayLabel}</span>
+                <span class="day-count">${dayRows.length} 家</span>
+              </div>
+              <span class="day-toggle">▾</span>
+            </div>
+            <div class="day-rows">
+              ${dayRows.map(row => renderErow(row)).join('')}
+            </div>
+          `;
+
+          const header = card.querySelector('.day-header');
+          header.addEventListener('click', () => card.classList.toggle('collapsed'));
+
+          daysList.appendChild(card);
+        });
+      }
+
+      function renderErow(row) {
+        const timeMap = { '盘前': 'pre', '盘后': 'post' };
+        const timeClass = timeMap[row.timeLabel] || 'unspecified';
+        const symbol = encodeURIComponent(row.symbol || '');
+        const filingUrl = `https://www.sec.gov/edgar/search/#/q=${symbol}&category=custom&forms=6-K%252C20-F%252C10-Q%252C10-K%252C8-K`;
+
+        let epsHtml = '';
+        if (row.epsForecast) {
+          epsHtml += `<span class="eps-forecast">预期 ${row.epsForecast}</span>`;
+        }
+        if (row.eps != null) {
+          const surprise = computeSurprise(row.eps, row.epsForecast);
+          if (surprise !== null) {
+            const cls = surprise > 0 ? 'beat' : surprise < 0 ? 'miss' : 'in-line';
+            const sign = surprise > 0 ? '+' : '';
+            epsHtml += `<span class="eps-surprise ${cls}">${sign}${surprise.toFixed(2)}%</span>`;
+          }
+        }
+
+        return `
+          <a class="erow" href="${filingUrl}" data-symbol="${row.symbol}" target="_blank" rel="noopener noreferrer" title="打开 ${row.symbol} 的最新 SEC 官方披露">
+            <div class="erow-ticker">
+              <strong>${row.symbol}</strong>
+              <span>${row.name}</span>
+            </div>
+            <div class="erow-meta">
+              <span class="time-chip ${timeClass}">${row.timeLabel}</span>
+              ${row.marketCap ? `<span class="marketcap">${row.marketCap}</span>` : ''}
+            </div>
+            <div class="erow-eps">${epsHtml}</div>
+          </a>
+        `;
+      }
+
+      function computeSurprise(actual, forecast) {
+        if (actual == null || !forecast) return null;
+        const fv = parseEps(forecast);
+        if (fv === null || fv === 0) return null;
+        return ((actual - fv) / Math.abs(fv)) * 100;
+      }
+
+      function parseEps(s) {
+        if (!s) return null;
+        s = s.trim().replace('$', '').replace('(', '-').replace(')', '');
+        const n = parseFloat(s);
+        return isNaN(n) ? null : n;
+      }
+
+      async function openLatestFiling(symbol, fallbackUrl) {
+        try {
+          const resp = await fetch(`/api/filing/latest?symbol=${encodeURIComponent(symbol)}`);
+          const data = await resp.json().catch(() => ({}));
+          const targetUrl = data.ok && data.url ? data.url : (data.fallbackUrl || fallbackUrl);
+          window.open(targetUrl, '_blank', 'noopener,noreferrer');
+        } catch (error) {
+          window.open(fallbackUrl, '_blank', 'noopener,noreferrer');
+        }
+      }
+
+      // ---- Load ----
+      async function loadEarnings() {
+        if (!currentUser) return;
+        loading = true;
+        renderEarnings();
+        try {
+          const resp = await fetch('/api/earnings?daysBack=7&daysForward=7');
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok || !data.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+          earningsWindow = data;
+        } catch (err) {
+          earningsWindow = null;
+          errorMsg.textContent = err.message || '请检查网络后重试';
+        } finally {
+          loading = false;
+          renderEarnings();
+        }
+      }
+
+      // ---- Toast ----
+      let toastTimer = null;
+      function showToast(msg) {
+        toastEl.textContent = msg;
+        toastEl.classList.add('show');
+        if (toastTimer) clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2200);
+      }
+
+      // ---- Boot ----
+      initAuth();
+    </script>
+  </body>
+</html>

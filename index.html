@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI股票研究助手</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <section id="auth-screen" class="auth-screen" hidden>
+      <div class="auth-card">
+        <div class="brand auth-brand">
+          <div class="brand-mark">H</div>
+          <div>
+            <h1>AI股票研究助手</h1>
+            <p>登录后使用你的股票研究台</p>
+          </div>
+        </div>
+        <div class="auth-tabs">
+          <button id="login-tab" class="active" type="button">登录</button>
+          <button id="register-tab" type="button">注册</button>
+        </div>
+        <form id="auth-form" class="auth-form">
+          <label class="field">
+            <span>用户名</span>
+            <input id="auth-username" type="text" autocomplete="username" placeholder="例如 demo" />
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input id="auth-password" type="password" autocomplete="current-password" placeholder="至少 6 位" />
+          </label>
+          <button id="auth-submit" type="submit">登录</button>
+          <p id="auth-error" class="auth-error"></p>
+        </form>
+      </div>
+    </section>
+
+    <div id="app-shell" class="app-shell" hidden>
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">H</div>
+          <div>
+            <h1>AI股票研究助手</h1>
+            <p>AI stock research assistant</p>
+          </div>
+        </div>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>我的股票池</h2>
+            <span id="watchlist-count">0</span>
+          </div>
+          <div id="market-tabs" class="market-tabs" role="tablist" aria-label="股票市场切换">
+            <button class="active" type="button" data-market="us" aria-pressed="true">美股</button>
+            <button type="button" data-market="hk" aria-pressed="false">港股</button>
+            <button type="button" data-market="cn" aria-pressed="false">A股</button>
+          </div>
+          <p class="market-hint">当前只显示：<strong id="current-market-label">美股</strong></p>
+          <form id="ticker-form" class="inline-form">
+            <input id="ticker-input" type="text" placeholder="CRCL / NVDA" autocomplete="off" />
+            <button type="submit" title="添加股票">+</button>
+          </form>
+          <button id="expand-related" class="ghost-button expand-button" type="button" title="用输入框里的 ticker 替换为完整研究池（会清空当前 watchlist）">↻ 展开为研究池</button>
+          <div id="watchlist" class="watchlist"></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-header">
+            <h2>研究偏好</h2>
+            <button id="reset-state" class="ghost-button" type="button">重置</button>
+          </div>
+          <label class="field">
+            <span>投资周期</span>
+            <select id="horizon">
+              <option value="长期">长期</option>
+              <option value="波段">波段</option>
+              <option value="短线">短线</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>风险承受</span>
+            <select id="risk">
+              <option value="稳健">稳健</option>
+              <option value="均衡">均衡</option>
+              <option value="进取">进取</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>分析风格</span>
+            <select id="style">
+              <option value="基本面">基本面</option>
+              <option value="技术面">技术面</option>
+              <option value="事件驱动">事件驱动</option>
+              <option value="宏观敏感">宏观敏感</option>
+            </select>
+          </label>
+          <div id="template-pill" class="template-pill"></div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Research Workspace</p>
+            <h2>你的股票研究台</h2>
+          </div>
+          <div class="status-strip">
+            <span id="user-badge">未登录</span>
+            <span id="version-badge">v1.0.0</span>
+            <span>Hermes Agent</span>
+            <span>真实行情</span>
+            <span id="quote-scope">美股行情</span>
+            <a class="ghost-link" href="./earnings.html">近期财报</a>
+            <a class="ghost-link compact-settings" href="./settings.html">设置</a>
+            <button id="logout-button" class="ghost-button compact-logout" type="button">退出</button>
+          </div>
+        </header>
+
+        <section class="hero" aria-label="市场概览">
+          <div class="hero-copy">
+            <p class="eyebrow">Market Lens</p>
+            <h3>每个用户一个按自己风格工作的 AI股票研究助手</h3>
+            <p>
+              持续跟踪股票池，解释波动，整理风险和机会；输出保持研究辅助定位，不替用户下达买卖指令。
+            </p>
+          </div>
+          <div class="hero-metrics">
+            <div>
+              <strong id="market-regime">Risk-on</strong>
+              <span>市场环境</span>
+            </div>
+            <div>
+              <strong id="alert-count">0</strong>
+              <span>今日提醒</span>
+            </div>
+            <div>
+              <strong id="coverage-count">0</strong>
+              <span>覆盖标的</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="main-grid">
+          <div class="tool-panel ask-panel">
+            <div class="section-heading ask-heading">
+              <div>
+                <p class="eyebrow">Ask AI</p>
+                <h3>研究问答</h3>
+              </div>
+              <span id="model-status" class="model-status">连接模型中</span>
+            </div>
+            <div id="chat-log" class="chat-log"></div>
+            <form id="chat-form" class="chat-form">
+              <textarea id="chat-input" rows="4" placeholder="问：CRCL 今天主要风险是什么？"></textarea>
+              <button type="submit">发送</button>
+            </form>
+          </div>
+
+          <section class="table-section compact-signals">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Signals</p>
+                <h3>股票池信号</h3>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>代码</th>
+                    <th>价格</th>
+                    <th>日涨跌</th>
+                    <th>核心信号</th>
+                    <th>风险</th>
+                  </tr>
+                </thead>
+                <tbody id="signals-table"></tbody>
+              </table>
+            </div>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script>
+      if (localStorage.getItem("stockHermesBuild.v2") !== "related-pool-20260606") {
+        localStorage.removeItem("stockHermesState.v1");
+        localStorage.setItem("stockHermesBuild.v2", "related-pool-20260606");
+      }
+    </script>
+    <script src="./app.js?v=earnings-link-20260608"></script>
+  </body>
+</html>
+
