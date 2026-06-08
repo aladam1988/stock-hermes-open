@@ -55,6 +55,33 @@ const stockData = {
     note: "资本开支和广告业务韧性是利润弹性的关键。",
     action: "观察 AWS backlog、广告收入和履约费用。",
   },
+  AVGO: {
+    name: "Broadcom",
+    price: 0,
+    change: 0,
+    signal: "AI ASIC 与 VMware 整合是市场关注主线。",
+    risk: "Medium",
+    note: "估值已经反映较高 AI 预期，重点看订单持续性。",
+    action: "跟踪 AI 定制芯片订单、软件利润率和并购整合。",
+  },
+  PLTR: {
+    name: "Palantir",
+    price: 0,
+    change: 0,
+    signal: "AI 应用商业化热度高，收入增速与估值弹性绑定。",
+    risk: "High",
+    note: "高估值下容错率低，需区分真实需求和叙事溢价。",
+    action: "看商业客户增速、续约率和利润率变化。",
+  },
+  AMD: {
+    name: "AMD",
+    price: 0,
+    change: 0,
+    signal: "GPU 追赶与 CPU 周期修复共同驱动关注度。",
+    risk: "Medium",
+    note: "AI 芯片份额验证仍在早期，容易受预期波动影响。",
+    action: "跟踪 MI 系列收入指引、毛利率和云厂商采用。",
+  },
 };
 
 // 静态 ticker → 公司名 映射（A股/港股常用标的）
@@ -242,7 +269,7 @@ const defaultState = {
   version: "1.0.0",
   activeMarket: "us",
   watchlists: {
-    us: ["CRCL", "NVDA", "AAPL", "MSFT"],
+    us: ["CRCL", "NVDA", "AVGO", "PLTR", "AMD", "TSLA"],
     hk: ["0700.HK", "9988.HK", "3690.HK"],
     cn: ["600519.SS", "300750.SZ", "000001.SZ"],
   },
@@ -285,6 +312,7 @@ const els = {
   marketTabs: document.querySelector("#market-tabs"),
   currentMarketLabel: document.querySelector("#current-market-label"),
   quoteScope: document.querySelector("#quote-scope"),
+  balanceBadge: document.querySelector("#balance-badge"),
   tickerForm: document.querySelector("#ticker-form"),
   tickerInput: document.querySelector("#ticker-input"),
   expandRelated: document.querySelector("#expand-related"),
@@ -330,7 +358,9 @@ function setAuthenticated(user) {
   renderChat();
   syncChatFromServer({ silent: true });
   loadModelStatus();
+  loadBillingBalance();
   loadQuotes();
+  setTimeout(loadQuotes, 1200);
 }
 
 function setUnauthenticated() {
@@ -786,9 +816,7 @@ async function askHermes(question) {
 }
 
 async function askModel(question) {
-  // 部分模型接口链路可能较慢，建议给前端请求设置超时。
-  // 浏览器 fetch 默认无超时，会在 30s+ 静默断开 → 出现 "Failed to fetch"。
-  // 这里给前端硬性 60s 上限，超过就主动 abort，给用户清晰提示。
+  // 模型调用链路可能需要 30-60s，给请求设置显式超时，避免浏览器长时间无反馈。
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 60000);
   try {
@@ -809,7 +837,7 @@ async function askModel(question) {
     return { answer: data.answer, concepts: data.concepts || [] };
   } catch (err) {
     if (err && err.name === "AbortError") {
-      throw new Error("模型调用超过 60 秒未返回，可稍后重试，或在设置里切换更稳定的 API 线路");
+      throw new Error("模型调用超过 60 秒未返回，可稍后重试，或切换更稳定的网络后再试");
     }
     throw err;
   } finally {
@@ -1382,15 +1410,65 @@ async function loadModelStatus() {
   }
 }
 
-async function loadModelStatus() {
+async function loadBillingBalance() {
+  if (!els.balanceBadge) return;
   try {
-    const response = await fetch("/api/config");
-    const data = await response.json();
+    const response = await fetch("/api/billing", { credentials: "same-origin" });
+    const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
-    els.modelStatus.textContent = `${data.model} · ${data.provider}${data.fallbackModel ? `｜备用 ${data.fallbackModel}` : ""}`;
-    els.modelStatus.classList.remove("error");
-  } catch (error) {
-    els.modelStatus.textContent = "模型未连接";
-    els.modelStatus.classList.add("error");
+    els.balanceBadge.textContent = `余额 $${data.balanceUsd || "0.00"}`;
+    els.balanceBadge.title = data.purpose || "用于 gpt-5.5 股票分析调用预算提示";
+  } catch {
+    els.balanceBadge.textContent = "余额 --";
   }
+}
+
+async function loadQuotes() {
+  const market = state.activeMarket;
+  const config = markets[market];
+  const tickers = activeWatchlist();
+  if (!currentUser || !tickers.length) {
+    quotesLoaded = true;
+    render();
+    return;
+  }
+  if (!config.supportsLiveQuotes) {
+    quotesLoaded = false;
+    quoteSource = `${config.label}真实行情待接入`;
+    render();
+    return;
+  }
+
+  const requestMarket = market;
+  const requestTickers = [...tickers];
+  try {
+    const response = await fetch(`/api/quotes?symbols=${encodeURIComponent(requestTickers.join(','))}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    if (state.activeMarket !== requestMarket) return;
+
+    (data.quotes || []).forEach((quote) => {
+      if (!quote || !quote.ticker || !quote.ok) return;
+      const ticker = String(quote.ticker).toUpperCase();
+      const existing = stockData[ticker] || unknownStock(ticker);
+      stockData[ticker] = {
+        ...existing,
+        name: quote.name || existing.name,
+        price: Number.isFinite(quote.price) ? quote.price : existing.price,
+        change: Number.isFinite(quote.change) ? quote.change : existing.change,
+        source: quote.source || data.source || "真实行情",
+        lastTradeTimestamp: quote.lastTradeTimestamp || "",
+        isRealTime: Boolean(quote.isRealTime),
+      };
+    });
+    quoteSource = data.source || "Nasdaq 延迟行情";
+    quoteUpdatedAt = new Date().toLocaleString("zh-CN", { hour12: false });
+    quotesLoaded = true;
+  } catch (error) {
+    quoteSource = `行情加载失败：${error.message || error}`;
+    quotesLoaded = false;
+  }
+  renderSignals();
+  renderMetrics();
+  renderWatchlist();
 }

@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>支付 · AI股票研究助手</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="settings-page authenticated billing-page">
+    <main class="settings-shell">
+      <header class="settings-header">
+        <div>
+          <p class="eyebrow">Billing</p>
+          <h1>支付与余额</h1>
+          <p>查看你存入的美元余额，用于调用 gpt-5.5 分析股票时做成本提示。</p>
+        </div>
+        <div class="settings-actions">
+          <a class="ghost-link" href="./index.html">← 返回研究台</a>
+          <div class="settings-menu">
+            <button class="ghost-button settings-menu-button" type="button" aria-haspopup="true" aria-expanded="false">设置 ▾</button>
+            <div class="settings-menu-panel" role="menu">
+              <a role="menuitem" href="./settings.html">Agent 设置</a>
+              <a role="menuitem" href="./billing.html">支付</a>
+            </div>
+          </div>
+          <button id="refresh-billing" class="primary-button" type="button">刷新</button>
+        </div>
+      </header>
+
+      <section id="billing-status" class="settings-status">正在读取余额...</section>
+
+      <section class="settings-grid billing-grid">
+        <article class="settings-card billing-balance-card wide-card">
+          <p class="eyebrow">Available Balance</p>
+          <h2>可用美元余额</h2>
+          <div class="balance-hero">
+            <strong id="billing-balance">$0.00</strong>
+            <span>这笔余额展示给你自己看，用来判断调用 gpt-5.5 做股票分析时还有多少预算。</span>
+          </div>
+        </article>
+
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Deposit</p>
+          <h2>记录入金</h2>
+          <form id="deposit-form" class="settings-form deposit-form">
+            <label>
+              <span>入金金额（美元）</span>
+              <input id="deposit-amount" type="number" min="1" max="10000" step="0.01" placeholder="例如 20" />
+            </label>
+            <button class="primary-button" type="submit">保存余额</button>
+          </form>
+          <p class="muted-text">当前版本只记录你自己存入的金额，不接 Stripe/支付宝/微信等真实支付通道。</p>
+        </article>
+      </section>
+    </main>
+
+    <script src="./billing.js?v=20260608-1"></script>
+  </body>
+</html>

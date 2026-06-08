@@ -1123,8 +1123,8 @@ body {
 
 .main-grid {
   display: grid;
-  grid-template-columns: minmax(680px, 1.85fr) minmax(260px, 0.45fr);
-  gap: 10px;
+  grid-template-columns: minmax(440px, 0.82fr) minmax(620px, 1.18fr);
+  gap: 12px;
   min-height: 0;
 }
 
@@ -1177,6 +1177,17 @@ body {
 
 .compact-signals .section-heading {
   margin-bottom: 8px;
+}
+
+.panel-note {
+  align-self: center;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.hot-watch-panel table {
+  min-width: 720px;
 }
 
 .memory-stack {
@@ -1272,6 +1283,73 @@ body {
   min-height: 30px;
   padding: 0 10px;
   font-size: 12px;
+}
+
+.balance-badge {
+  background: #f0fbf4 !important;
+  color: #187044 !important;
+  border-color: #bde8cf !important;
+}
+
+.settings-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.settings-menu-button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.settings-menu-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  display: none;
+  min-width: 148px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.settings-menu:hover .settings-menu-panel,
+.settings-menu:focus-within .settings-menu-panel {
+  display: grid;
+}
+
+.settings-menu-panel a {
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.settings-menu-panel a:hover {
+  background: var(--surface-2);
+}
+
+.balance-hero {
+  display: grid;
+  gap: 8px;
+}
+
+.balance-hero strong {
+  font-size: 52px;
+  line-height: 1;
+  color: #187044;
+}
+
+.deposit-form {
+  max-width: 420px;
+}
+
+.billing-grid {
+  align-items: start;
 }
 
 .settings-status {

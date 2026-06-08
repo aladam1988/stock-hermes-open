@@ -1,4 +1,4 @@
-# Python / local runtime
+# Python artifacts
 __pycache__/
 *.py[cod]
 .venv/
@@ -24,10 +24,11 @@ token.json
 *.db
 *.db-*
 *.sqlite
-*.sqlite3
-
-# Logs / OS files
+*.sqlite*
 *.log
+logs/
+
+# OS files
 .DS_Store
 
 # Local auth QR / screenshots

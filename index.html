@@ -23,7 +23,7 @@
         <form id="auth-form" class="auth-form">
           <label class="field">
             <span>用户名</span>
-            <input id="auth-username" type="text" autocomplete="username" placeholder="例如 demo" />
+            <input id="auth-username" type="text" autocomplete="username" placeholder="例如 a1234" />
           </label>
           <label class="field">
             <span>密码</span>
@@ -110,8 +110,15 @@
             <span>Hermes Agent</span>
             <span>真实行情</span>
             <span id="quote-scope">美股行情</span>
+            <span id="balance-badge" class="balance-badge">余额 $0.00</span>
             <a class="ghost-link" href="./earnings.html">近期财报</a>
-            <a class="ghost-link compact-settings" href="./settings.html">设置</a>
+            <div class="settings-menu">
+              <button class="ghost-button settings-menu-button" type="button" aria-haspopup="true" aria-expanded="false">设置 ▾</button>
+              <div class="settings-menu-panel" role="menu">
+                <a role="menuitem" href="./settings.html">Agent 设置</a>
+                <a role="menuitem" href="./billing.html">支付</a>
+              </div>
+            </div>
             <button id="logout-button" class="ghost-button compact-logout" type="button">退出</button>
           </div>
         </header>
@@ -141,6 +148,30 @@
         </section>
 
         <section class="main-grid">
+          <section class="table-section compact-signals hot-watch-panel">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Hot Watchlist</p>
+                <h3>热门观察池</h3>
+              </div>
+              <span class="panel-note">真实行情 · 仅观察不推荐</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>标的</th>
+                    <th>价格</th>
+                    <th>日涨跌</th>
+                    <th>为什么值得看</th>
+                    <th>风险点</th>
+                  </tr>
+                </thead>
+                <tbody id="signals-table"></tbody>
+              </table>
+            </div>
+          </section>
+
           <div class="tool-panel ask-panel">
             <div class="section-heading ask-heading">
               <div>
@@ -155,41 +186,18 @@
               <button type="submit">发送</button>
             </form>
           </div>
-
-          <section class="table-section compact-signals">
-            <div class="section-heading">
-              <div>
-                <p class="eyebrow">Signals</p>
-                <h3>股票池信号</h3>
-              </div>
-            </div>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>代码</th>
-                    <th>价格</th>
-                    <th>日涨跌</th>
-                    <th>核心信号</th>
-                    <th>风险</th>
-                  </tr>
-                </thead>
-                <tbody id="signals-table"></tbody>
-              </table>
-            </div>
-          </section>
         </section>
       </main>
     </div>
 
     <div id="toast" class="toast" role="status" aria-live="polite"></div>
     <script>
-      if (localStorage.getItem("stockHermesBuild.v2") !== "related-pool-20260606") {
+      if (localStorage.getItem("stockHermesBuild.v2") !== "hot-watch-20260608") {
         localStorage.removeItem("stockHermesState.v1");
-        localStorage.setItem("stockHermesBuild.v2", "related-pool-20260606");
+        localStorage.setItem("stockHermesBuild.v2", "hot-watch-20260608");
       }
     </script>
-    <script src="./app.js?v=earnings-link-20260608"></script>
+    <script src="./app.js?v=hot-watch-quotes-retry-20260608"></script>
   </body>
 </html>
 

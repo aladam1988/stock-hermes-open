@@ -71,10 +71,14 @@ def init_db() -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 username TEXT NOT NULL UNIQUE,
                 password_hash TEXT NOT NULL,
+                balance_cents INTEGER NOT NULL DEFAULT 0,
                 created_at INTEGER NOT NULL
             )
             """
         )
+        user_columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)")}
+        if "balance_cents" not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN balance_cents INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS sessions (
@@ -158,6 +162,58 @@ def validate_password(password: str) -> None:
         raise ValueError("密码至少 6 位")
     if len(password) > 200:
         raise ValueError("密码过长")
+
+
+def cents_to_usd(cents: int) -> str:
+    return f"{max(0, int(cents)) / 100:.2f}"
+
+
+def parse_usd_to_cents(value: Any) -> int:
+    raw = str(value or "").strip().replace("$", "").replace(",", "")
+    if not raw:
+        raise ValueError("请输入入金金额")
+    try:
+        cents = round(float(raw) * 100)
+    except ValueError as exc:
+        raise ValueError("入金金额格式不正确") from exc
+    if cents <= 0:
+        raise ValueError("入金金额必须大于 0")
+    if cents > 1_000_000:
+        raise ValueError("单次入金不能超过 $10,000")
+    return cents
+
+
+def billing_payload(user_id: int) -> dict[str, Any]:
+    with db() as conn:
+        row = conn.execute("SELECT balance_cents FROM users WHERE id = ?", (user_id,)).fetchone()
+    balance_cents = int(row["balance_cents"] if row else 0)
+    return {
+        "ok": True,
+        "currency": "USD",
+        "balanceCents": balance_cents,
+        "balanceUsd": cents_to_usd(balance_cents),
+        "purpose": "用于调用 gpt-5.5 分析股票时展示你的可用美元余额",
+    }
+
+
+def add_user_balance(user_id: int, amount_cents: int) -> dict[str, Any]:
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            "UPDATE users SET balance_cents = balance_cents + ? WHERE id = ?",
+            (amount_cents, user_id),
+        )
+        row = conn.execute("SELECT balance_cents FROM users WHERE id = ?", (user_id,)).fetchone()
+    balance_cents = int(row["balance_cents"] if row else 0)
+    return {
+        "ok": True,
+        "currency": "USD",
+        "addedCents": amount_cents,
+        "addedUsd": cents_to_usd(amount_cents),
+        "balanceCents": balance_cents,
+        "balanceUsd": cents_to_usd(balance_cents),
+        "updatedAt": now,
+    }
 
 
 def create_session(user_id: int) -> str:
@@ -1209,6 +1265,15 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self.send_json(500, {"ok": False, "error": str(exc)})
             return
+        if path == "/api/billing":
+            user = self.require_user()
+            if not user:
+                return
+            try:
+                self.send_json(200, billing_payload(int(user["id"])))
+            except Exception as exc:
+                self.send_json(500, {"ok": False, "error": str(exc)})
+            return
         if path == "/api/quotes":
             if not self.require_user():
                 return
@@ -1302,6 +1367,17 @@ class Handler(SimpleHTTPRequestHandler):
             return self.handle_login()
         if path == "/api/auth/logout":
             return self.handle_logout()
+        if path == "/api/billing/deposit":
+            user = self.require_user()
+            if not user:
+                return
+            try:
+                payload = self.read_json(10_000)
+                amount_cents = parse_usd_to_cents(payload.get("amount"))
+                self.send_json(200, add_user_balance(int(user["id"]), amount_cents))
+            except Exception as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            return
         if path == "/api/settings":
             if not self.require_user():
                 return
