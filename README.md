@@ -1,20 +1,35 @@
 # Stock Hermes
 
-一个本地优先的股票研究助手原型，用于观察美股/产业链标的、整理研究问题，并通过 OpenAI-compatible API 调用大模型生成分析。
+一个本地优先的股票研究助手原型，用来搭建美股/产业链观察池、整理研究问题，并通过 OpenAI-compatible API 调用大模型生成分析。
 
-## 特点
+> 适合想研究半导体、物理 AI、机器人供应链、美股观察池的人，把零散问题沉淀成一个本地研究工作台。
+
+## 在线预览
+
+GitHub Pages 开启后可访问：
+
+```text
+https://aladam1988.github.io/stock-hermes-open/
+```
+
+说明：在线预览只展示前端界面；模型调用需要本地启动后端并配置自己的 API Key。
+
+## 核心特点
 
 - 本地网页界面，默认运行在 `http://127.0.0.1:8899/`
-- 支持通过后端代理调用模型，避免在前端暴露 API Key
-- 适合做观察池、股票研究笔记和产业链分析原型
+- 后端代理模型请求，避免在前端暴露 API Key
+- 支持观察池、研究问题、股票分析、产业链梳理等场景
 - 包含设置页，可查看当前模型配置状态
+- 开源版只保留安全源码和 `.env.example`，不包含任何私密配置
 
 ## 快速开始
 
 ```bash
+git clone https://github.com/aladam1988/stock-hermes-open.git
+cd stock-hermes-open
 cp .env.example .env
 # 编辑 .env，填入你的 OpenAI-compatible API 地址和 Key
-python3 server.py --port 8899
+python3 server.py
 ```
 
 打开：
@@ -22,6 +37,33 @@ python3 server.py --port 8899
 ```text
 http://127.0.0.1:8899/
 ```
+
+如果要换端口：
+
+```bash
+PORT=8898 python3 server.py
+```
+
+## 配置说明
+
+`.env.example` 示例：
+
+```bash
+STOCK_HERMES_MODEL="gpt-5.5"
+STOCK_HERMES_BASE_URL="https://your-openai-compatible-endpoint/v1"
+STOCK_HERMES_API_KEY="PASTE_YOUR_KEY_HERE"
+STOCK_HERMES_PROVIDER="custom"
+```
+
+你也可以使用任意兼容 OpenAI Chat Completions 的服务。
+
+## 适合场景
+
+- 做一个自己的股票研究助手
+- 整理美股观察池和产业链标的
+- 研究半导体、物理 AI、机器人、无人机等主题
+- 把本地研究过程沉淀成可复用工具
+- 学习如何安全地把模型 API Key 放在后端而不是前端
 
 ## 安全说明
 
@@ -43,3 +85,7 @@ http://127.0.0.1:8899/
 ## 免责声明
 
 本项目仅用于研究和信息整理，不构成投资建议。行情、估值和模型输出都需要自行核验。
+
+## License
+
+MIT
