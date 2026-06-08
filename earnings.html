@@ -416,7 +416,7 @@
         }
         const analyzeButton = event.target.closest('[data-action="analyze"]');
         if (analyzeButton) {
-          goAnalyzeEarnings(analyzeButton.dataset.symbol || '', analyzeButton.dataset.name || '');
+          goAnalyzeEarnings(analyzeButton.dataset.symbol || '');
         }
       });
 
@@ -537,6 +537,7 @@
         const nameZh = row.nameZh ? `<span class="company-zh">${escapeHtml(row.nameZh)}</span>` : '';
         const category = row.category ? `<span class="company-category">${escapeHtml(row.category)}</span>` : '';
         const description = row.description ? `<p class="company-desc">${escapeHtml(row.description)}</p>` : '';
+        const analystCoverage = formatAnalystCoverage(row.noOfEsts);
 
         return `
           <div class="erow" data-symbol="${row.symbol}">
@@ -562,6 +563,7 @@
               <div class="erow-meta">
                 <span class="time-chip ${timeClass}">${eventLabel} · ${row.timeLabel}</span>
                 ${row.marketCap ? `<span class="marketcap">市值 ${row.marketCap}</span>` : '<span class="marketcap">市值暂无</span>'}
+                <span class="marketcap">分析师覆盖 ${analystCoverage}</span>
                 <span class="marketcap">${row.source || 'Nasdaq earnings calendar'}</span>
               </div>
             </div>
@@ -585,6 +587,14 @@
         return Number.isFinite(n) ? n : null;
       }
 
+      function formatAnalystCoverage(value) {
+        const text = String(value ?? '').trim();
+        if (!text || text.toUpperCase() === 'N/A' || text === '-' || text === '--') return '暂无';
+        const numeric = parseInt(text.replace(/,/g, ''), 10);
+        if (!Number.isFinite(numeric) || numeric <= 0) return '暂无';
+        return `${numeric} 位`;
+      }
+
       function escapeHtml(value) {
         return String(value ?? '')
           .replace(/&/g, '&amp;')
@@ -598,9 +608,36 @@
         return String(value).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
       }
 
-      function goAnalyzeEarnings(symbol, name) {
+      function goAnalyzeEarnings(symbol) {
         if (!symbol) return;
-        const question = `${symbol} ${name ? `（${name}）` : ''} 最近要发财报，请结合财报日历、预期 EPS、财季、市值、真实行情和最新 SEC/公司披露，分析这家公司本次财报最应该关注什么、可能的超预期/低预期点、估值风险和接下来需要验证的问题。不要给买卖建议，只做观察池研究。`;
+        const row = (earningsWindow?.rows || []).find(item => String(item.symbol || '').toUpperCase() === String(symbol).toUpperCase()) || {};
+        const encodedSymbol = encodeURIComponent(symbol || '');
+        const secSearchUrl = `https://www.sec.gov/edgar/search/#/q=${encodedSymbol}&category=custom&forms=6-K%252C20-F%252C10-Q%252C10-K%252C8-K`;
+        const lines = [
+          `${symbol} ${row.name ? `（${row.name}）` : ''} 最近要发财报，请做观察池研究。`,
+          '',
+          '已知财报日历信息：',
+          `- 财报日期：${row.date || '暂无'}`,
+          `- 披露时段：${row.timeLabel || '暂无'}`,
+          `- 预期 EPS：${row.epsForecast || '暂无'}`,
+          `- 实际 EPS：${row.eps || '尚未披露'}`,
+          `- 财季截止：${row.fiscalQuarterEnding || '暂无'}`,
+          `- 市值：${row.marketCap || '暂无'}`,
+          `- 分析师覆盖：${formatAnalystCoverage(row.noOfEsts)}`,
+          `- Nasdaq 来源字段：${earningsWindow?.source || 'Nasdaq earnings calendar'}`,
+          '',
+          '披露链接：',
+          `- SEC 最新披露搜索入口：${secSearchUrl}`,
+          '说明：如果后端能查到最新 SEC/公司披露，请优先结合最新披露；如果只能打开搜索入口，请明确说还需要人工核对最新 10-Q/10-K/8-K。',
+          '',
+          '请结合真实行情、涨跌幅、财报日历、预期 EPS、财季、市值、SEC/公司披露，分析：',
+          '1. 本次财报最应该关注什么。',
+          '2. 可能的超预期点和低预期点。',
+          '3. 当前估值风险。',
+          '4. 接下来需要验证的问题。',
+          '不要给买卖建议，只做观察池研究。'
+        ];
+        const question = lines.join('\n');
         window.location.href = `./index.html?ask=${encodeURIComponent(question)}&ticker=${encodeURIComponent(symbol)}`;
       }
 

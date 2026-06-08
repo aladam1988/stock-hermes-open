@@ -797,6 +797,7 @@ def clean_earnings_row(row: dict[str, Any], target_date: date) -> dict[str, Any]
         "eps": row.get("eps"),
         "fiscalQuarterEnding": row.get("fiscalQuarterEnding") or "",
         "marketCap": row.get("marketCap") or "",
+        "noOfEsts": row.get("noOfEsts") or "",
         "source": "Nasdaq earnings calendar",
     }
 
