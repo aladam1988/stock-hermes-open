@@ -1302,6 +1302,16 @@ body {
   font-size: 12px;
 }
 
+.icon-menu-button {
+  width: 34px;
+  min-height: 34px;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 17px;
+  line-height: 1;
+}
+
 .settings-menu-panel {
   position: absolute;
   top: calc(100% + 6px);
@@ -1321,15 +1331,29 @@ body {
   display: grid;
 }
 
-.settings-menu-panel a {
+.settings-menu-panel a,
+.settings-menu-logout {
+  width: 100%;
+  border: 0;
+  background: transparent;
   padding: 10px 12px;
   color: var(--text);
+  font: inherit;
   font-size: 13px;
   font-weight: 700;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
 }
 
-.settings-menu-panel a:hover {
+.settings-menu-logout {
+  margin-top: 4px;
+  border-top: 1px solid var(--line);
+  color: #9d2d22;
+}
+
+.settings-menu-panel a:hover,
+.settings-menu-logout:hover {
   background: var(--surface-2);
 }
 
