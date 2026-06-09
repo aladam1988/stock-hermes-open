@@ -9,7 +9,7 @@
 GitHub Pages：
 
 ```text
-https://aladam1988.github.io/stock-hermes-open/
+http://ai.aladam.ccwu.cc/index.html
 ```
 
 说明：在线预览只展示前端界面；模型调用、登录、余额记录需要本地启动后端并配置自己的 API Key。
