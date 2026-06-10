@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>支付 · AI股票研究助手</title>
+    <title>支付 · 小牛AI投研</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body class="settings-page authenticated billing-page">
@@ -12,7 +12,7 @@
         <div>
           <p class="eyebrow">Billing</p>
           <h1>支付与余额</h1>
-          <p>查看你存入的美元余额，用于调用 gpt-5.5 分析股票时做成本提示。</p>
+          <p>查看余额并发起真实充值；支持易支付和码支付，未配置商户参数时会明确提示。</p>
         </div>
         <div class="settings-actions">
           <a class="ghost-link" href="./index.html">← 返回研究台</a>
@@ -21,6 +21,7 @@
             <div class="settings-menu-panel" role="menu">
               <a role="menuitem" href="./settings.html">Agent 设置</a>
               <a role="menuitem" href="./billing.html">支付</a>
+              <a class="admin-only" role="menuitem" href="./wechat.html" hidden>公众号</a>
             </div>
           </div>
           <button id="refresh-billing" class="primary-button" type="button">刷新</button>
@@ -40,20 +41,49 @@
         </article>
 
         <article class="settings-card wide-card">
-          <p class="eyebrow">Deposit</p>
-          <h2>记录入金</h2>
+          <p class="eyebrow">Recharge</p>
+          <h2>真实充值</h2>
+          <form id="payment-form" class="settings-form deposit-form payment-form">
+            <label>
+              <span>充值金额（美元）</span>
+              <input id="payment-amount" type="number" min="1" max="10000" step="0.01" placeholder="例如 20" />
+            </label>
+            <div class="payment-options">
+              <label><input type="radio" name="provider" value="epay" checked /> 易支付</label>
+              <label><input type="radio" name="provider" value="codepay" /> 码支付</label>
+            </div>
+            <div class="payment-options">
+              <label><input type="radio" name="payType" value="alipay" checked /> 支付宝</label>
+              <label><input type="radio" name="payType" value="wxpay" /> 微信</label>
+              <label><input type="radio" name="payType" value="qqpay" /> QQ钱包</label>
+            </div>
+            <button class="primary-button" type="submit">创建支付订单</button>
+          </form>
+          <div id="provider-status" class="provider-status"></div>
+          <p class="muted-text">支付成功后，易支付/码支付异步回调会自动给当前账号余额入账。请先在服务器 .env 配置商户 ID、密钥和公网地址。</p>
+        </article>
+
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Manual Ledger</p>
+          <h2>手动记账（测试/补单）</h2>
           <form id="deposit-form" class="settings-form deposit-form">
             <label>
               <span>入金金额（美元）</span>
               <input id="deposit-amount" type="number" min="1" max="10000" step="0.01" placeholder="例如 20" />
             </label>
-            <button class="primary-button" type="submit">保存余额</button>
+            <button class="ghost-button" type="submit">手动增加余额</button>
           </form>
-          <p class="muted-text">当前版本只记录你自己存入的金额，不接 Stripe/支付宝/微信等真实支付通道。</p>
+          <p class="muted-text">仅用于你自己测试或补单，不会发起真实支付。</p>
+        </article>
+
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Orders</p>
+          <h2>最近订单</h2>
+          <div id="orders-list" class="orders-list">暂无订单</div>
         </article>
       </section>
     </main>
 
-    <script src="./billing.js?v=20260608-1"></script>
+    <script src="./billing.js?v=payment-20260609"></script>
   </body>
 </html>

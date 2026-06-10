@@ -292,6 +292,8 @@ let toastTimer = null;
 let authMode = "login";
 let currentUser = null;
 let quoteSource = "加载真实行情中";
+const PENDING_ASK_KEY = "stockHermesPendingAsk.v1";
+const ACTIVE_ASKS_KEY = "stockHermesActiveAsks.v1";
 let quoteUpdatedAt = null;
 let quotesLoaded = false;
 
@@ -354,13 +356,18 @@ function setAuthenticated(user) {
   els.authScreen.hidden = true;
   els.appShell.hidden = false;
   els.userBadge.textContent = user.username;
+  toggleAdminLinks(Boolean(user.isAdmin));
   render();
   renderChat();
-  syncChatFromServer({ silent: true });
+  // 先同步历史，再恢复后台任务。
+  // 否则刷新后 resumePendingAsk() 先插入“正在恢复”气泡，随后 syncChatFromServer() 异步完成又 renderChat()，
+  // 会把这个气泡从 DOM 清掉；后台轮询仍在跑，但答案写到一个已经不在页面上的节点里，用户只能再次刷新才看见。
+  syncChatFromServer({ silent: true }).finally(() => resumePendingAsk());
   loadModelStatus();
   loadBillingBalance();
   loadQuotes();
   setTimeout(loadQuotes, 1200);
+  handleIncomingAsk();
 }
 
 function setUnauthenticated() {
@@ -369,7 +376,14 @@ function setUnauthenticated() {
   els.authScreen.hidden = false;
   els.appShell.hidden = true;
   els.userBadge.textContent = "未登录";
+  toggleAdminLinks(false);
   setAuthMode("login");
+}
+
+function toggleAdminLinks(show) {
+  document.querySelectorAll(".admin-only").forEach((item) => {
+    item.hidden = !show;
+  });
 }
 
 function setAuthMode(mode) {
@@ -782,32 +796,51 @@ function generateBrief() {
   showToast(`日报已生成：${state.lastBriefAt}`);
 }
 
+function handleIncomingAsk() {
+  const params = new URLSearchParams(window.location.search);
+  const question = params.get("ask");
+  const ticker = (params.get("ticker") || "").trim().toUpperCase();
+  if (ticker) {
+    state.activeMarket = "us";
+    if (!state.watchlists.us.includes(ticker)) {
+      state.watchlists.us = [ticker, ...state.watchlists.us].slice(0, 8);
+      saveState();
+      render();
+      loadQuotes();
+    }
+  }
+  if (!question) return;
+  const dedupeKey = `stockHermesIncomingAsk:${question}`;
+  if (sessionStorage.getItem(dedupeKey)) return;
+  sessionStorage.setItem(dedupeKey, "1");
+  history.replaceState(null, "", window.location.pathname);
+  els.chatInput.value = question;
+  setTimeout(() => askHermes(question), 500);
+}
+
 async function askHermes(question) {
   const clean = question.trim();
   if (!clean) return;
   appendMessage("user", clean, "", true);
   els.chatInput.value = "";
 
-  const loading = appendMessage("agent", "正在调用当前 Hermes 模型分析…", "loading", false);
+  const loading = appendMessage("agent", "已提交后台分析任务…页面刷新也不会中断，完成后会自动显示。", "loading", false);
   setChatBusy(true);
 
+  let startedJobId = null;
   try {
-    const result = await askModel(clean);
-    loading.classList.remove("loading");
-    const concepts = result.concepts || [];
-    const shouldAutoAnnotate = state.conceptAnnotationMode === "always";
-    setMessageText(loading, result.answer, shouldAutoAnnotate ? concepts : []);
-    saveChatMessage("agent", result.answer, concepts);
-    if (concepts.length && state.conceptAnnotationMode === "ask") {
-      showConceptPrompt(loading, concepts, result.answer);
-    } else if (concepts.length && shouldAutoAnnotate) {
-      showToast(`已自动标注 ${concepts.length} 个概念`);
-    }
+    const job = await startAskJob(clean);
+    startedJobId = job.id;
+    savePendingAsk({ jobId: job.id, question: clean });
+    trackActiveAsk({ jobId: job.id, question: clean, createdAt: Date.now() });
+    await pollAskJob(job.id, clean, loading);
   } catch (error) {
     loading.classList.remove("loading");
     const fallbackAnswer = `${answerQuestion(clean)}\n\n（模型接口暂时不可用，已回退到本地规则回答。错误：${error.message || error}）`;
     setMessageText(loading, fallbackAnswer);
     saveChatMessage("agent", fallbackAnswer);
+    if (startedJobId) clearPendingAsk(startedJobId);
+    else clearPendingAsk();
     showToast("模型调用失败，已回退本地回答");
   } finally {
     setChatBusy(false);
@@ -815,10 +848,123 @@ async function askHermes(question) {
   }
 }
 
+async function startAskJob(question) {
+  const response = await fetch("/api/ask/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      question,
+      state: chatContextState(state),
+    }),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok || !data.job?.id) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+  return data.job;
+}
+
+async function pollAskJob(jobId, question, loadingEl) {
+  const started = Date.now();
+  while (Date.now() - started < 10 * 60 * 1000) {
+    const response = await fetch(`/api/ask/status?id=${encodeURIComponent(jobId)}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    const job = data.job;
+    if (job.status === "done") {
+      loadingEl.classList.remove("loading");
+      const concepts = job.concepts || [];
+      const shouldAutoAnnotate = state.conceptAnnotationMode === "always";
+      setMessageText(loadingEl, job.answer, shouldAutoAnnotate ? concepts : []);
+      if (!hasChatText(job.answer)) saveChatMessage("agent", job.answer, concepts);
+      clearPendingAsk(jobId);
+      if (concepts.length && state.conceptAnnotationMode === "ask") {
+        showConceptPrompt(loadingEl, concepts, job.answer);
+      } else if (concepts.length && shouldAutoAnnotate) {
+        showToast(`已自动标注 ${concepts.length} 个概念`);
+      }
+      return;
+    }
+    if (job.status === "error") throw new Error(job.error || "模型任务失败");
+    setMessageText(loadingEl, `后台分析中…状态：${job.status === "running" ? "模型正在生成" : "排队中"}。刷新页面不会中断。`);
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+  }
+  throw new Error("后台模型任务超过 10 分钟未完成");
+}
+
+function savePendingAsk(job) {
+  sessionStorage.setItem(PENDING_ASK_KEY, JSON.stringify(job));
+}
+
+function clearPendingAsk(jobId = null) {
+  if (jobId) untrackActiveAsk(jobId);
+  sessionStorage.removeItem(PENDING_ASK_KEY);
+}
+
+function loadActiveAsks() {
+  try {
+    const jobs = JSON.parse(localStorage.getItem(ACTIVE_ASKS_KEY) || "[]");
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    return Array.isArray(jobs) ? jobs.filter((job) => job?.jobId && job?.question && (job.createdAt || 0) > cutoff) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveActiveAsks(jobs) {
+  localStorage.setItem(ACTIVE_ASKS_KEY, JSON.stringify(jobs.slice(-5)));
+}
+
+function trackActiveAsk(job) {
+  const jobs = loadActiveAsks().filter((item) => item.jobId !== job.jobId);
+  jobs.push(job);
+  saveActiveAsks(jobs);
+}
+
+function untrackActiveAsk(jobId) {
+  saveActiveAsks(loadActiveAsks().filter((job) => job.jobId !== jobId));
+}
+
+function hasChatText(text) {
+  return activeChat().some((message) => message.text === text);
+}
+
+function resumePendingAsk() {
+  const jobs = loadActiveAsks();
+  let sessionPending = null;
+  try {
+    sessionPending = JSON.parse(sessionStorage.getItem(PENDING_ASK_KEY) || "null");
+  } catch {
+    clearPendingAsk();
+  }
+  if (sessionPending?.jobId && !jobs.some((job) => job.jobId === sessionPending.jobId)) {
+    jobs.push({ ...sessionPending, createdAt: Date.now() });
+  }
+  if (!jobs.length) return;
+
+  jobs.forEach((pending) => {
+    if (!pending?.jobId || !pending?.question) return;
+    const loading = appendMessage("agent", "正在恢复后台分析任务…刷新没有中断模型调用。", "loading", false);
+    setChatBusy(true);
+    pollAskJob(pending.jobId, pending.question, loading)
+      .catch((error) => {
+        loading.classList.remove("loading");
+        const fallbackAnswer = `${answerQuestion(pending.question)}\n\n（后台任务恢复失败，已回退到本地规则回答。错误：${error.message || error}）`;
+        setMessageText(loading, fallbackAnswer);
+        if (!hasChatText(fallbackAnswer)) saveChatMessage("agent", fallbackAnswer);
+        clearPendingAsk(pending.jobId);
+      })
+      .finally(() => {
+        setChatBusy(false);
+        els.chatLog.scrollTop = els.chatLog.scrollHeight;
+      });
+  });
+}
+
 async function askModel(question) {
-  // 模型调用链路可能需要 30-60s，给请求设置显式超时，避免浏览器长时间无反馈。
+  // 模型调用链路偶尔需要 60s 以上，给财报分析留足时间，避免前端先断开造成 Failed to fetch。
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
   try {
     const response = await fetch("/api/ask", {
       method: "POST",
@@ -1183,15 +1329,61 @@ function createConceptMark(label, concept) {
 function answerQuestion(question) {
   const ticker = detectTicker(question);
   const data = ticker && quotesLoaded ? stockData[ticker] || unknownStock(ticker) : null;
+  const earnings = parseEarningsQuestion(question);
 
   if (!ticker) {
     return `我会先按当前${marketLabel()}池做交叉检查：${activeWatchlist().join("、") || "暂无股票"}。当前偏好是 ${state.preferences.horizon}、${state.preferences.risk}、${state.preferences.style}。如果要具体到某只股票，请带上代码。`;
+  }
+  if (earnings) {
+    return buildEarningsFallbackAnswer(ticker, data, earnings);
   }
   if (!data) {
     return `${ticker} 的真实行情还在加载中，等${quoteMarketLabel()}返回后我再基于真实价格和涨跌幅分析。`;
   }
 
   return `${ticker} 当前真实行情 $${Number.isFinite(data.price) ? data.price.toFixed(2) : "暂无"}，最近交易日 ${formatChange(Number.isFinite(data.change) ? data.change : 0)}。主要信号是：${data.signal} 风险等级为 ${riskText(data.risk)}。在 ${state.preferences.style} 风格下，我会先验证：${data.action} 这不是买卖建议，只是研究辅助。`;
+}
+
+function parseEarningsQuestion(question) {
+  if (!/财报日期|预期 EPS|财季截止|SEC 最新披露|观察池研究/.test(question)) return null;
+  const read = (label) => {
+    const match = question.match(new RegExp(`- ${label}：([^\\n]+)`));
+    return match ? match[1].trim() : "暂无";
+  };
+  const secMatch = question.match(/SEC 最新披露搜索入口：([^\n]+)/);
+  return {
+    date: read("财报日期"),
+    timeLabel: read("披露时段"),
+    epsForecast: read("预期 EPS"),
+    epsActual: read("实际 EPS"),
+    fiscalQuarterEnding: read("财季截止"),
+    marketCap: read("市值"),
+    secUrl: secMatch ? secMatch[1].trim() : "暂无",
+  };
+}
+
+function moneyNumber(value) {
+  const normalized = String(value || "").replace(/[$,]/g, "").replace(/^\((.*)\)$/, "-$1");
+  const n = Number.parseFloat(normalized);
+  return Number.isFinite(n) ? n : null;
+}
+
+function buildEarningsFallbackAnswer(ticker, data, earnings) {
+  const forecast = moneyNumber(earnings.epsForecast);
+  const actual = moneyNumber(earnings.epsActual);
+  const hasSurprise = Number.isFinite(forecast) && Number.isFinite(actual) && forecast !== 0;
+  const surprise = hasSurprise ? ((actual - forecast) / Math.abs(forecast)) * 100 : null;
+  const quoteLine = data
+    ? `真实行情：$${Number.isFinite(data.price) ? data.price.toFixed(2) : "暂无"}，最近交易日 ${formatChange(Number.isFinite(data.change) ? data.change : 0)}，行情信号：${data.signal}`
+    : `真实行情：仍在加载或暂无返回，先不要把价格反应作为结论。`;
+  const surpriseLine = hasSurprise
+    ? `EPS 对比：实际 ${earnings.epsActual} vs 预期 ${earnings.epsForecast}，偏离约 ${surprise > 0 ? "+" : ""}${surprise.toFixed(1)}%。`
+    : `EPS 对比：预期 ${earnings.epsForecast}，实际 ${earnings.epsActual}，当前口径不足以计算偏离。`;
+  const direction = hasSurprise
+    ? (surprise >= 10 ? "已经明显超预期，接下来要验证收入、指引和现金流是否同样支撑。" : surprise <= -10 ? "EPS 明显低于预期，重点要拆解是口径差异、一次性费用，还是经营质量变弱。" : "EPS 接近预期，重点会转向收入质量、指引和管理层表述。")
+    : "若尚未披露，重点是预期 EPS 与管理层指引之间是否存在落差。";
+
+  return `${ticker} 财报观察池研究（本地回退版，非买卖建议）\n\n已带入的财报上下文：\n- 财报日期：${earnings.date}\n- 披露时段：${earnings.timeLabel}\n- 财季截止：${earnings.fiscalQuarterEnding}\n- 市值：${earnings.marketCap}\n- ${surpriseLine}\n- ${quoteLine}\n- SEC/披露入口：${earnings.secUrl}\n\n最应该关注：\n1. 先核对 EPS 口径：Nasdaq 的预期/实际是否同为 non-GAAP 或 GAAP，避免误判。\n2. 看收入、订单/剩余履约义务、递延收入和自由现金流是否支持 EPS 表现。\n3. 看下一季/全年指引，尤其是收入增速、利润率和现金流指引有没有上修或下修。\n\n可能超预期点：\n- ${direction}\n- 如果真实行情上涨但 EPS 没有明显超预期，可能是市场更看重指引、订单或战略叙事。\n- 如果公司披露显示大客户、订阅收入或云/AI 相关业务强于预期，估值容错率会提高。\n\n可能低预期点：\n- EPS 低于预期且收入/指引没有补偿，会放大估值风险。\n- 若毛利率、经营利润率或现金流转弱，说明增长质量可能下降。\n- 若最新 SEC/公司披露里有递延收入、客户集中、诉讼、重组费用等变化，需要优先核对。\n\n估值风险：\n- 当前市值为 ${earnings.marketCap}，市场通常会要求更高的增长确定性。\n- 高估值公司一旦指引保守，股价反应可能比单季 EPS 更剧烈。\n\n接下来要验证的问题：\n1. 打开 SEC/公司披露链接，确认最新 10-Q/10-K/8-K 或财报新闻稿是否已经发布。\n2. 对比公司官方 EPS 口径与 Nasdaq 日历口径。\n3. 查看真实行情在财报后是上涨还是下跌，以及成交量是否放大。\n4. 记录管理层对下一财季收入、利润率、现金流和需求环境的表述。`;
 }
 
 function checkUpdates() {
@@ -1276,7 +1468,10 @@ function currentStockData() {
 
 function detectTicker(question) {
   const upper = question.toUpperCase();
-  return activeWatchlist().find((ticker) => upper.includes(ticker)) || Object.keys(currentStockData()).find((ticker) => upper.includes(ticker));
+  const known = activeWatchlist().find((ticker) => upper.includes(ticker)) || Object.keys(currentStockData()).find((ticker) => upper.includes(ticker));
+  if (known) return known;
+  const explicit = upper.match(/\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b/);
+  return explicit ? explicit[0] : null;
 }
 
 function highestRiskTicker() {

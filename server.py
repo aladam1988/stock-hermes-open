@@ -14,6 +14,7 @@ import json
 import os
 import secrets
 import sqlite3
+import threading
 import time
 from datetime import date, datetime, timedelta
 from http import cookies
@@ -21,7 +22,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib import error, request
+from urllib import error, parse, request
 from urllib.parse import parse_qs, urlparse
 
 try:
@@ -36,6 +37,7 @@ DB_PATH = ROOT / "stock_hermes.db"
 ENV_PATH = ROOT / ".env"
 SESSION_TTL_SECONDS = 60 * 60 * 24 * 14
 PBKDF2_ITERATIONS = 260_000
+WECHAT_SETTING_KEYS = {"appid", "appsecret", "author", "default_digest", "thumb_media_id"}
 
 
 def load_dotenv() -> None:
@@ -53,6 +55,7 @@ def load_dotenv() -> None:
 
 
 load_dotenv()
+ADMIN_USERNAME = os.environ.get("STOCK_HERMES_ADMIN_USERNAME", "").strip().lower()
 
 
 def db() -> sqlite3.Connection:
@@ -118,6 +121,65 @@ def init_db() -> None:
             )
             """
         )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS payment_orders (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_no TEXT NOT NULL UNIQUE,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                provider TEXT NOT NULL,
+                pay_type TEXT NOT NULL,
+                amount_cents INTEGER NOT NULL,
+                subject TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'pending',
+                provider_trade_no TEXT,
+                raw_notify TEXT NOT NULL DEFAULT '',
+                created_at INTEGER NOT NULL,
+                paid_at INTEGER
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_payment_orders_user_id ON payment_orders(user_id, id)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_payment_orders_status ON payment_orders(status)")
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wechat_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at INTEGER NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS wechat_posts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                title TEXT NOT NULL,
+                digest TEXT NOT NULL DEFAULT '',
+                content TEXT NOT NULL,
+                source_message_ids TEXT NOT NULL DEFAULT '[]',
+                status TEXT NOT NULL DEFAULT 'draft',
+                wechat_media_id TEXT,
+                wechat_response TEXT NOT NULL DEFAULT '',
+                created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                created_at INTEGER NOT NULL,
+                published_at INTEGER
+            )
+            """
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_wechat_posts_status_id ON wechat_posts(status, id)")
+
+
+def is_admin_user(user: dict[str, Any] | None) -> bool:
+    if not user:
+        return False
+    return str(user.get("username") or "").strip().lower() == ADMIN_USERNAME
+
+
+def public_user_payload(user: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not user:
+        return None
+    return {"id": int(user["id"]), "username": user["username"], "isAdmin": is_admin_user(user)}
 
 
 def hash_password(password: str, salt: str | None = None) -> str:
@@ -215,6 +277,212 @@ def add_user_balance(user_id: int, amount_cents: int) -> dict[str, Any]:
         "updatedAt": now,
     }
 
+
+
+
+def public_base_url(handler: Any | None = None) -> str:
+    configured = (os.environ.get("STOCK_HERMES_PUBLIC_URL") or "").strip().rstrip("/")
+    if configured:
+        return configured
+    if handler is not None:
+        proto = handler.headers.get("X-Forwarded-Proto") or ("https" if handler.headers.get("HTTPS") else "http")
+        host = handler.headers.get("X-Forwarded-Host") or handler.headers.get("Host")
+        if host:
+            return f"{proto}://{host}".rstrip("/")
+    return "http://127.0.0.1:8899"
+
+
+def payment_provider_configs() -> dict[str, dict[str, Any]]:
+    epay_url = (os.environ.get("EPAY_API_URL") or os.environ.get("YIPAY_API_URL") or "").strip().rstrip("/")
+    codepay_url = (os.environ.get("CODEPAY_API_URL") or "").strip().rstrip("/")
+    return {
+        "epay": {
+            "key": "epay",
+            "label": "易支付",
+            "enabled": bool(epay_url and (os.environ.get("EPAY_PID") or os.environ.get("YIPAY_PID")) and (os.environ.get("EPAY_KEY") or os.environ.get("YIPAY_KEY"))),
+            "apiUrl": epay_url,
+            "pid": (os.environ.get("EPAY_PID") or os.environ.get("YIPAY_PID") or "").strip(),
+            "secret": (os.environ.get("EPAY_KEY") or os.environ.get("YIPAY_KEY") or "").strip(),
+            "doc": "兼容彩虹易支付/Epay：/submit.php，MD5 签名。",
+        },
+        "codepay": {
+            "key": "codepay",
+            "label": "码支付",
+            "enabled": bool(codepay_url and os.environ.get("CODEPAY_ID") and os.environ.get("CODEPAY_KEY")),
+            "apiUrl": codepay_url,
+            "pid": (os.environ.get("CODEPAY_ID") or "").strip(),
+            "secret": (os.environ.get("CODEPAY_KEY") or "").strip(),
+            "doc": "兼容 CodePay/码支付：id/pay_id/price/type/notify_url/return_url，MD5 签名。",
+        },
+    }
+
+
+def payment_public_payload() -> dict[str, Any]:
+    cfgs = payment_provider_configs()
+    return {
+        "providers": [
+            {"key": cfg["key"], "label": cfg["label"], "enabled": cfg["enabled"], "doc": cfg["doc"]}
+            for cfg in cfgs.values()
+        ],
+        "methods": [
+            {"key": "alipay", "label": "支付宝"},
+            {"key": "wxpay", "label": "微信支付"},
+            {"key": "qqpay", "label": "QQ 钱包"},
+        ],
+        "envHelp": {
+            "epay": ["EPAY_API_URL", "EPAY_PID", "EPAY_KEY", "STOCK_HERMES_PUBLIC_URL"],
+            "codepay": ["CODEPAY_API_URL", "CODEPAY_ID", "CODEPAY_KEY", "STOCK_HERMES_PUBLIC_URL"],
+        },
+    }
+
+
+def md5_sign(params: dict[str, Any], secret: str, skip_keys: set[str] | None = None) -> str:
+    skip = {"sign", "sign_type"} | (skip_keys or set())
+    items = []
+    for key in sorted(params.keys()):
+        value = params[key]
+        if key in skip or value is None or value == "":
+            continue
+        items.append(f"{key}={value}")
+    raw = "&".join(items) + secret
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def verify_md5_sign(params: dict[str, Any], secret: str) -> bool:
+    got = str(params.get("sign") or "").lower()
+    if not got:
+        return False
+    expected = md5_sign(params, secret).lower()
+    return hmac.compare_digest(got, expected)
+
+
+def create_payment_order(user_id: int, provider: str, amount_cents: int, pay_type: str, handler: Any | None = None) -> dict[str, Any]:
+    provider = (provider or "").strip().lower()
+    pay_type = (pay_type or "alipay").strip().lower()
+    if pay_type not in {"alipay", "wxpay", "qqpay"}:
+        raise ValueError("支付方式只能是 alipay / wxpay / qqpay")
+    cfgs = payment_provider_configs()
+    cfg = cfgs.get(provider)
+    if not cfg:
+        raise ValueError("不支持的支付通道")
+    if not cfg["enabled"]:
+        raise ValueError(f"{cfg['label']} 还没有配置商户参数")
+    now = int(time.time())
+    order_no = "SH" + datetime.utcnow().strftime("%Y%m%d%H%M%S") + secrets.token_hex(4).upper()
+    amount = cents_to_usd(amount_cents)
+    subject = f"小牛AI投研余额充值 ${amount}"
+    base = public_base_url(handler)
+    notify_url = f"{base}/api/payment/notify/{provider}"
+    return_url = f"{base}/billing.html?order={parse.quote(order_no)}"
+    with db() as conn:
+        conn.execute(
+            """
+            INSERT INTO payment_orders(order_no, user_id, provider, pay_type, amount_cents, subject, status, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+            """,
+            (order_no, user_id, provider, pay_type, amount_cents, subject, now),
+        )
+    if provider == "epay":
+        params = {
+            "pid": cfg["pid"],
+            "type": pay_type,
+            "out_trade_no": order_no,
+            "notify_url": notify_url,
+            "return_url": return_url,
+            "name": subject,
+            "money": amount,
+            "clientip": getattr(handler, "client_address", [""])[0] if handler else "",
+            "device": "pc",
+        }
+        params["sign"] = md5_sign(params, cfg["secret"])
+        params["sign_type"] = "MD5"
+        pay_url = f"{cfg['apiUrl']}/submit.php?{parse.urlencode(params)}"
+    elif provider == "codepay":
+        params = {
+            "id": cfg["pid"],
+            "pay_id": order_no,
+            "type": 1 if pay_type == "alipay" else 3 if pay_type == "wxpay" else 2,
+            "price": amount,
+            "param": str(user_id),
+            "notify_url": notify_url,
+            "return_url": return_url,
+        }
+        params["sign"] = md5_sign(params, cfg["secret"])
+        pay_url = f"{cfg['apiUrl']}?{parse.urlencode(params)}"
+    else:
+        raise ValueError("不支持的支付通道")
+    return {
+        "ok": True,
+        "order": {
+            "orderNo": order_no,
+            "provider": provider,
+            "providerLabel": cfg["label"],
+            "payType": pay_type,
+            "amountCents": amount_cents,
+            "amountUsd": amount,
+            "status": "pending",
+            "subject": subject,
+            "payUrl": pay_url,
+        }
+    }
+
+
+def list_payment_orders(user_id: int, limit: int = 20) -> list[dict[str, Any]]:
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT order_no, provider, pay_type, amount_cents, subject, status, provider_trade_no, created_at, paid_at
+            FROM payment_orders
+            WHERE user_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (user_id, limit),
+        ).fetchall()
+    return [
+        {
+            "orderNo": row["order_no"],
+            "provider": row["provider"],
+            "payType": row["pay_type"],
+            "amountCents": int(row["amount_cents"]),
+            "amountUsd": cents_to_usd(int(row["amount_cents"])),
+            "subject": row["subject"],
+            "status": row["status"],
+            "providerTradeNo": row["provider_trade_no"],
+            "createdAt": row["created_at"],
+            "paidAt": row["paid_at"],
+        }
+        for row in rows
+    ]
+
+
+def apply_paid_order(order_no: str, provider: str, amount_text: Any, trade_no: str, raw_payload: dict[str, Any]) -> bool:
+    amount_cents = parse_usd_to_cents(amount_text)
+    now = int(time.time())
+    with db() as conn:
+        row = conn.execute(
+            "SELECT id, user_id, amount_cents, status FROM payment_orders WHERE order_no = ? AND provider = ?",
+            (order_no, provider),
+        ).fetchone()
+        if not row:
+            raise ValueError("订单不存在")
+        if int(row["amount_cents"]) != int(amount_cents):
+            raise ValueError("回调金额与订单金额不一致")
+        if row["status"] == "paid":
+            return False
+        conn.execute(
+            """
+            UPDATE payment_orders
+            SET status = 'paid', provider_trade_no = ?, raw_notify = ?, paid_at = ?
+            WHERE id = ?
+            """,
+            (trade_no, json.dumps(raw_payload, ensure_ascii=False), now, int(row["id"])),
+        )
+        conn.execute(
+            "UPDATE users SET balance_cents = balance_cents + ? WHERE id = ?",
+            (amount_cents, int(row["user_id"])),
+        )
+    return True
 
 def create_session(user_id: int) -> str:
     now = int(time.time())
@@ -405,7 +673,7 @@ def hermes_settings_payload(user: dict[str, Any]) -> dict[str, Any]:
         }
     return {
         "ok": True,
-        "user": {"id": int(user["id"]), "username": user["username"]},
+        "user": public_user_payload(user),
         "hermes": {
             "home": str(HERMES_HOME),
             "configPath": str(CONFIG_PATH),
@@ -465,7 +733,9 @@ def chat_completion(cfg: dict[str, str], messages: list[dict[str, str]], max_tok
         },
     )
     try:
-        with request.urlopen(req, timeout=90) as resp:
+        # 长财报/观察池问题 max_tokens=4000 时，上游模型可能需要 90s 以上；
+        # 这里必须和输出上限一起放大，否则前端后台任务会变成超时失败。
+        with request.urlopen(req, timeout=240) as resp:
             raw = resp.read().decode("utf-8", errors="replace")
     except error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:1200]
@@ -497,7 +767,7 @@ def call_model(payload: dict[str, Any]) -> str:
     # 用户的 watchlist（股票池）不再注入 prompt——只是用户本地查看用。
     # 问答应该独立于 watchlist，用户问题里提到了具体股票才结合该股票讨论。
 
-    system = """你是 Stock Hermes，一个中文股票研究助手。
+    system = """你是小牛AI投研，一个中文投研助手。
 你的定位：帮助用户做研究、拆风险、列假设、整理下一步验证问题；不要给出直接买入/卖出指令，不承诺收益。
 回答风格：中文、具体、可执行、少废话。
 不要假设用户有任何持仓或正在跟踪的股票；用户问题中提到了具体股票代码/公司名才结合该股票讨论，没提到就当作通用问题回答。
@@ -608,6 +878,9 @@ SEC_TICKER_MAP_TTL = 60 * 60 * 24
 SEC_FORMS_PRIORITY = {"6-K", "20-F", "10-Q", "10-K", "8-K"}
 EARNINGS_WINDOW_CACHE: dict[tuple[str, int, int], dict[str, Any]] = {}
 EARNINGS_WINDOW_TTL = 10 * 60
+ASK_JOBS: dict[str, dict[str, Any]] = {}
+ASK_JOBS_LOCK = threading.Lock()
+ASK_JOB_TTL = 30 * 60
 
 
 def sec_user_agent() -> str:
@@ -935,6 +1208,262 @@ def favorite_latest_agent_message(user_id: int, market: str) -> int:
         return 1
 
 
+def get_wechat_settings(include_secret: bool = False) -> dict[str, Any]:
+    with db() as conn:
+        rows = conn.execute("SELECT key, value, updated_at FROM wechat_settings").fetchall()
+    raw = {row["key"]: row["value"] for row in rows}
+    return {
+        "appid": raw.get("appid", ""),
+        "appsecret": raw.get("appsecret", "") if include_secret else ("已配置" if raw.get("appsecret") else ""),
+        "hasAppsecret": bool(raw.get("appsecret")),
+        "author": raw.get("author", ""),
+        "defaultDigest": raw.get("default_digest", ""),
+        "thumbMediaId": raw.get("thumb_media_id", ""),
+        "configured": bool(raw.get("appid") and raw.get("appsecret")),
+    }
+
+
+def save_wechat_settings(payload: dict[str, Any]) -> dict[str, Any]:
+    now = int(time.time())
+    updates: dict[str, str] = {}
+    if "appid" in payload:
+        updates["appid"] = str(payload.get("appid") or "").strip()
+    if "appsecret" in payload:
+        secret = str(payload.get("appsecret") or "").strip()
+        if secret and secret != "已配置":
+            updates["appsecret"] = secret
+    if "author" in payload:
+        updates["author"] = str(payload.get("author") or "").strip()[:64]
+    if "defaultDigest" in payload or "default_digest" in payload:
+        updates["default_digest"] = str(payload.get("defaultDigest") or payload.get("default_digest") or "").strip()[:120]
+    if "thumbMediaId" in payload or "thumb_media_id" in payload:
+        updates["thumb_media_id"] = str(payload.get("thumbMediaId") or payload.get("thumb_media_id") or "").strip()[:160]
+    with db() as conn:
+        for key, value in updates.items():
+            if key not in WECHAT_SETTING_KEYS:
+                continue
+            if value:
+                conn.execute(
+                    "INSERT INTO wechat_settings(key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                    (key, value, now),
+                )
+            elif key != "appsecret":
+                conn.execute("DELETE FROM wechat_settings WHERE key = ?", (key,))
+    return get_wechat_settings(False)
+
+
+def score_wechat_question(text: str, ticker: str | None = None) -> tuple[int, list[str]]:
+    clean = " ".join(str(text or "").strip().split())
+    lower = clean.lower()
+    score = 0
+    reasons: list[str] = []
+    if 10 <= len(clean) <= 180:
+        score += 18
+        reasons.append("问题长度适合标题/选题")
+    elif 180 < len(clean) <= 500:
+        score += 8
+        reasons.append("信息量较多")
+    focus_words = ["为什么", "怎么", "机会", "风险", "估值", "财报", "半导体", "物理ai", "机器人", "ai", "供应链", "巴菲特", "美股", "股票", "现金流", "护城河"]
+    hits = [word for word in focus_words if word in lower or word in clean]
+    if hits:
+        score += min(30, 8 + len(hits) * 4)
+        reasons.append("投资/AI主题明确")
+    if "?" in clean or "？" in clean:
+        score += 10
+        reasons.append("天然问句")
+    if ticker:
+        score += 8
+        reasons.append(f"包含股票代码 {ticker}")
+    if any(word in clean for word in ["买入", "推荐", "稳赚", "内幕", "暴富"]):
+        score -= 15
+        reasons.append("需谨慎改写，避免荐股口径")
+    return max(score, 0), reasons or ["可作为素材备选"]
+
+
+def wechat_candidate_title(text: str, ticker: str | None = None) -> str:
+    clean = " ".join(str(text or "").strip().split())
+    if len(clean) <= 34:
+        return clean.rstrip("?？")
+    if ticker:
+        return f"{ticker} 值得关注吗？"
+    if "半导体" in clean and "物理" in clean:
+        return "半导体和物理 AI，美股还有机会吗？"
+    if "财报" in clean:
+        return "这份财报真正该看什么？"
+    if "估值" in clean:
+        return "估值高的时候，应该看什么？"
+    return clean[:32].rstrip("，。,.!?！？")
+
+
+def make_wechat_article(title: str, questions: list[dict[str, Any]]) -> str:
+    lines = [f"# {title}", "", "这篇来自站内用户向 小牛AI投研提出的问题。", "我把其中适合公开讨论的部分整理成一篇观察笔记，只做研究，不构成买卖建议。", ""]
+    for idx, item in enumerate(questions, 1):
+        q = str(item.get("text") or "").strip()
+        lines.append(f"## {idx}. {wechat_candidate_title(q, item.get('ticker'))}")
+        lines.append("")
+        lines.append(f"> 用户原问题：{q}")
+        lines.append("")
+        lines.append("可以从三个角度看：")
+        lines.append("- 它背后的产业链逻辑是什么；")
+        lines.append("- 哪些数据能验证这个判断；")
+        lines.append("- 哪些风险会让这个判断失效。")
+        lines.append("")
+    lines.append("如果你也在观察美股、半导体、物理 AI 或机器人供应链，可以把问题丢给这个研究助手，让它先帮你整理一版观察框架。")
+    return "\n".join(lines).strip()
+
+
+def list_wechat_candidates(limit: int = 80) -> list[dict[str, Any]]:
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT chat_messages.*, users.username
+            FROM chat_messages
+            JOIN users ON users.id = chat_messages.user_id
+            WHERE chat_messages.role = 'user'
+            ORDER BY chat_messages.id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+    candidates = []
+    for row in rows:
+        text = str(row["text"] or "").strip()
+        if len(text) < 6:
+            continue
+        score, reasons = score_wechat_question(text, row["ticker"])
+        if score < 18:
+            continue
+        candidates.append({
+            "id": row["id"],
+            "username": row["username"],
+            "market": row["market"],
+            "ticker": row["ticker"],
+            "text": text,
+            "score": score,
+            "reasons": reasons,
+            "suggestedTitle": wechat_candidate_title(text, row["ticker"]),
+            "createdAt": row["created_at"],
+        })
+    return sorted(candidates, key=lambda item: (item["score"], item["id"]), reverse=True)[:limit]
+
+
+def save_wechat_post(user_id: int, title: str, digest: str, content: str, source_ids: list[int]) -> dict[str, Any]:
+    now = int(time.time())
+    title = str(title or "").strip()[:96]
+    digest = str(digest or "").strip()[:120]
+    content = str(content or "").strip()
+    if not title:
+        raise ValueError("请输入标题")
+    if len(content) < 20:
+        raise ValueError("正文太短")
+    with db() as conn:
+        cur = conn.execute(
+            "INSERT INTO wechat_posts(title, digest, content, source_message_ids, status, created_by, created_at) VALUES (?, ?, ?, ?, 'draft', ?, ?)",
+            (title, digest, content, json.dumps(source_ids, ensure_ascii=False), user_id, now),
+        )
+        post_id = int(cur.lastrowid or 0)
+    return {"id": post_id, "title": title, "digest": digest, "content": content, "status": "draft", "createdAt": now}
+
+
+def wechat_post_row(row: sqlite3.Row) -> dict[str, Any]:
+    try:
+        source_ids = json.loads(row["source_message_ids"] or "[]")
+    except Exception:
+        source_ids = []
+    return {
+        "id": row["id"],
+        "title": row["title"],
+        "digest": row["digest"],
+        "content": row["content"],
+        "sourceMessageIds": source_ids if isinstance(source_ids, list) else [],
+        "status": row["status"],
+        "wechatMediaId": row["wechat_media_id"],
+        "createdAt": row["created_at"],
+        "publishedAt": row["published_at"],
+    }
+
+
+def list_wechat_posts(limit: int = 30) -> list[dict[str, Any]]:
+    with db() as conn:
+        rows = conn.execute("SELECT * FROM wechat_posts ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+    return [wechat_post_row(row) for row in rows]
+
+
+def markdown_to_wechat_html(markdown_text: str) -> str:
+    parts: list[str] = []
+    for raw in str(markdown_text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            parts.append("<p><br></p>")
+        elif line.startswith("# "):
+            parts.append(f"<h1>{html_escape(line[2:])}</h1>")
+        elif line.startswith("## "):
+            parts.append(f"<h2>{html_escape(line[3:])}</h2>")
+        elif line.startswith("> "):
+            parts.append(f"<blockquote>{html_escape(line[2:])}</blockquote>")
+        elif line.startswith("- "):
+            parts.append(f"<p>• {html_escape(line[2:])}</p>")
+        else:
+            parts.append(f"<p>{html_escape(line)}</p>")
+    return "\n".join(parts)
+
+
+def html_escape(value: str) -> str:
+    return str(value or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+
+
+def wechat_api_json(url: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    data = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = request.Request(url, data=data, headers={"Content-Type": "application/json; charset=utf-8"})
+    with request.urlopen(req, timeout=30) as resp:
+        raw = resp.read().decode("utf-8", errors="replace")
+    result = json.loads(raw or "{}")
+    if result.get("errcode") not in (None, 0):
+        raise RuntimeError(f"微信接口错误 {result.get('errcode')}: {result.get('errmsg')}")
+    return result
+
+
+def publish_wechat_draft(post_id: int) -> dict[str, Any]:
+    settings = get_wechat_settings(True)
+    appid = settings.get("appid") or ""
+    appsecret = settings.get("appsecret") or ""
+    thumb_media_id = settings.get("thumbMediaId") or ""
+    if not appid or not appsecret:
+        raise ValueError("请先配置微信公众号 AppID 和 AppSecret")
+    if not thumb_media_id:
+        raise ValueError("请先配置封面素材 thumb_media_id；微信公众号 draft/add 必须带封面素材")
+    with db() as conn:
+        row = conn.execute("SELECT * FROM wechat_posts WHERE id = ?", (post_id,)).fetchone()
+    if not row:
+        raise ValueError("草稿不存在")
+    post = wechat_post_row(row)
+    token_url = f"https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid={parse.quote(appid)}&secret={parse.quote(appsecret)}"
+    token_payload = wechat_api_json(token_url)
+    access_token = token_payload.get("access_token")
+    if not access_token:
+        raise RuntimeError("微信接口没有返回 access_token")
+    article = {
+        "title": post["title"],
+        "author": settings.get("author") or "小牛AI投研",
+        "digest": post["digest"] or settings.get("defaultDigest") or "来自用户问题的美股观察笔记",
+        "content": markdown_to_wechat_html(post["content"]),
+        "content_source_url": "",
+        "thumb_media_id": thumb_media_id,
+        "need_open_comment": 0,
+        "only_fans_can_comment": 0,
+    }
+    draft_url = f"https://api.weixin.qq.com/cgi-bin/draft/add?access_token={parse.quote(access_token)}"
+    draft_payload = wechat_api_json(draft_url, {"articles": [article]})
+    media_id = str(draft_payload.get("media_id") or "")
+    now = int(time.time())
+    with db() as conn:
+        conn.execute(
+            "UPDATE wechat_posts SET status = 'wechat_draft', wechat_media_id = ?, wechat_response = ?, published_at = ? WHERE id = ?",
+            (media_id, json.dumps({"media_id": media_id}, ensure_ascii=False), now, post_id),
+        )
+    return {"ok": True, "postId": post_id, "mediaId": media_id, "publishedAt": now}
+
+
 def clean_concept_term(value: str) -> str:
     term = " ".join(str(value or "").strip().split())
     if len(term) > 40:
@@ -1252,6 +1781,59 @@ def call_related_model(ticker: str, market: str) -> list[dict[str, str]]:
         return fallback
 
 
+def run_ask_job(job_id: str) -> None:
+    with ASK_JOBS_LOCK:
+        job = ASK_JOBS.get(job_id)
+        if not job:
+            return
+        job["status"] = "running"
+        job["startedAt"] = int(time.time())
+    try:
+        payload = dict(job.get("payload") or {})
+        answer = call_model(payload)
+        concepts: list[dict[str, Any]] = []
+        try:
+            concepts = extract_concepts_from_answer(answer, str(payload.get("question") or ""))
+        except Exception:
+            concepts = []
+        with ASK_JOBS_LOCK:
+            job = ASK_JOBS.get(job_id)
+            if job:
+                job.update({"status": "done", "answer": answer, "concepts": concepts, "finishedAt": int(time.time())})
+    except Exception as exc:
+        with ASK_JOBS_LOCK:
+            job = ASK_JOBS.get(job_id)
+            if job:
+                job.update({"status": "error", "error": str(exc), "finishedAt": int(time.time())})
+
+
+def create_ask_job(user_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+    now = int(time.time())
+    job_id = secrets.token_urlsafe(12)
+    with ASK_JOBS_LOCK:
+        for key, job in list(ASK_JOBS.items()):
+            if now - int(job.get("createdAt", now)) > ASK_JOB_TTL:
+                ASK_JOBS.pop(key, None)
+        ASK_JOBS[job_id] = {
+            "id": job_id,
+            "userId": user_id,
+            "status": "queued",
+            "payload": payload,
+            "createdAt": now,
+        }
+    thread = threading.Thread(target=run_ask_job, args=(job_id,), daemon=True)
+    thread.start()
+    return {"id": job_id, "status": "queued", "createdAt": now}
+
+
+def get_ask_job(user_id: int, job_id: str) -> dict[str, Any] | None:
+    with ASK_JOBS_LOCK:
+        job = ASK_JOBS.get(job_id)
+        if not job or int(job.get("userId", -1)) != user_id:
+            return None
+        return {key: value for key, value in job.items() if key != "payload"}
+
+
 class Handler(SimpleHTTPRequestHandler):
     server_version = "StockHermes/0.4"
 
@@ -1321,6 +1903,15 @@ class Handler(SimpleHTTPRequestHandler):
             return None
         return user
 
+    def require_admin(self) -> dict[str, Any] | None:
+        user = self.require_user()
+        if not user:
+            return None
+        if not is_admin_user(user):
+            self.send_json(403, {"ok": False, "error": "只有站长账号可以访问公众号后台"})
+            return None
+        return user
+
     def session_cookie(self, token: str, max_age: int = SESSION_TTL_SECONDS) -> str:
         return f"stock_hermes_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age}"
 
@@ -1330,9 +1921,24 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         parsed_url = urlparse(self.path)
         path = parsed_url.path
+        if path in {"/home", "/dashboard"}:
+            self.path = "/index.html"
+            return super().do_GET()
         if path == "/api/auth/me":
             user = self.current_user()
-            self.send_json(200, {"ok": True, "user": user})
+            self.send_json(200, {"ok": True, "user": public_user_payload(user)})
+            return
+        if path == "/api/ask/status":
+            user = self.require_user()
+            if not user:
+                return
+            qs = parse_qs(parsed_url.query)
+            job_id = (qs.get("id") or [""])[0]
+            job = get_ask_job(int(user["id"]), job_id)
+            if not job:
+                self.send_json(404, {"ok": False, "error": "任务不存在或已过期"})
+                return
+            self.send_json(200, {"ok": True, "job": job})
             return
         if path == "/api/config":
             if not self.require_user():
@@ -1365,7 +1971,28 @@ class Handler(SimpleHTTPRequestHandler):
             if not user:
                 return
             try:
-                self.send_json(200, billing_payload(int(user["id"])))
+                payload = billing_payload(int(user["id"]))
+                payload.update(payment_public_payload())
+                payload["orders"] = list_payment_orders(int(user["id"]), 20)
+                self.send_json(200, payload)
+            except Exception as exc:
+                self.send_json(500, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/payment/order":
+            user = self.require_user()
+            if not user:
+                return
+            try:
+                qs = parse_qs(parsed_url.query)
+                order_no = str((qs.get("order") or [""])[0]).strip()
+                if not order_no:
+                    self.send_json(400, {"ok": False, "error": "缺少订单号"})
+                    return
+                orders = [item for item in list_payment_orders(int(user["id"]), 100) if item["orderNo"] == order_no]
+                if not orders:
+                    self.send_json(404, {"ok": False, "error": "订单不存在"})
+                    return
+                self.send_json(200, {"ok": True, "order": orders[0], "billing": billing_payload(int(user["id"]))})
             except Exception as exc:
                 self.send_json(500, {"ok": False, "error": str(exc)})
             return
@@ -1432,6 +2059,31 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self.send_json(500, {"ok": False, "error": str(exc)})
             return
+        if path == "/api/admin/wechat":
+            user = self.require_admin()
+            if not user:
+                return
+            try:
+                self.send_json(200, {
+                    "ok": True,
+                    "settings": get_wechat_settings(False),
+                    "candidates": list_wechat_candidates(100),
+                    "posts": list_wechat_posts(30),
+                })
+            except Exception as exc:
+                self.send_json(500, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/admin/wechat/candidates":
+            user = self.require_admin()
+            if not user:
+                return
+            try:
+                qs = parse_qs(parsed_url.query)
+                limit = min(max(int((qs.get("limit") or ["100"])[0]), 1), 300)
+                self.send_json(200, {"ok": True, "candidates": list_wechat_candidates(limit)})
+            except Exception as exc:
+                self.send_json(500, {"ok": False, "error": str(exc)})
+            return
         if path == "/api/memory":
             user = self.require_user()
             if not user:
@@ -1474,6 +2126,27 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self.send_json(400, {"ok": False, "error": str(exc)})
             return
+        if path == "/api/payment/create":
+            user = self.require_user()
+            if not user:
+                return
+            try:
+                payload = self.read_json(10_000)
+                amount_cents = parse_usd_to_cents(payload.get("amount"))
+                provider = str(payload.get("provider") or "").strip().lower()
+                pay_type = str(payload.get("payType") or payload.get("type") or "alipay").strip().lower()
+                self.send_json(200, create_payment_order(int(user["id"]), provider, amount_cents, pay_type, self))
+            except Exception as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            return
+        if path.startswith("/api/payment/notify/"):
+            provider = path.rsplit("/", 1)[-1].strip().lower()
+            try:
+                payload = self.read_json(20_000)
+                self.handle_payment_notify(provider, payload)
+            except Exception as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            return
         if path == "/api/settings":
             if not self.require_user():
                 return
@@ -1507,6 +2180,49 @@ class Handler(SimpleHTTPRequestHandler):
             except Exception as exc:
                 self.send_json(500, {"ok": False, "error": str(exc)})
             return
+        if path == "/api/admin/wechat/settings":
+            user = self.require_admin()
+            if not user:
+                return
+            try:
+                payload = self.read_json(20_000)
+                self.send_json(200, {"ok": True, "settings": save_wechat_settings(payload)})
+            except Exception as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/admin/wechat/draft":
+            user = self.require_admin()
+            if not user:
+                return
+            try:
+                payload = self.read_json(80_000)
+                source_ids = [int(x) for x in (payload.get("sourceMessageIds") or payload.get("sourceIds") or []) if str(x).isdigit()]
+                selected: list[dict[str, Any]] = []
+                if source_ids:
+                    id_set = set(source_ids)
+                    selected = [item for item in list_wechat_candidates(300) if int(item["id"]) in id_set]
+                title = str(payload.get("title") or "").strip()
+                if not title and selected:
+                    title = selected[0].get("suggestedTitle") or "站内热门问题观察"
+                content = str(payload.get("content") or "").strip() or make_wechat_article(title or "站内热门问题观察", selected)
+                digest = str(payload.get("digest") or get_wechat_settings(False).get("defaultDigest") or "来自用户问题的美股观察笔记").strip()
+                post = save_wechat_post(int(user["id"]), title or "站内热门问题观察", digest, content, source_ids)
+                self.send_json(200, {"ok": True, "post": post, "posts": list_wechat_posts(30)})
+            except Exception as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/admin/wechat/publish":
+            user = self.require_admin()
+            if not user:
+                return
+            try:
+                payload = self.read_json(20_000)
+                post_id = int(payload.get("postId") or 0)
+                result = publish_wechat_draft(post_id)
+                self.send_json(200, {"ok": True, "result": result, "posts": list_wechat_posts(30)})
+            except Exception as exc:
+                self.send_json(400, {"ok": False, "error": str(exc)})
+            return
         if path == "/api/memory":
             user = self.require_user()
             if not user:
@@ -1521,6 +2237,17 @@ class Handler(SimpleHTTPRequestHandler):
                     self.send_json(400, {"ok": False, "error": "无效的路径或不被允许"})
                     return
                 self.send_json(200, {"ok": True, "file": result})
+            except Exception as exc:
+                self.send_json(500, {"ok": False, "error": str(exc)})
+            return
+        if path == "/api/ask/start":
+            user = self.require_user()
+            if not user:
+                return
+            try:
+                payload = self.read_json()
+                job = create_ask_job(int(user["id"]), payload)
+                self.send_json(202, {"ok": True, "job": job})
             except Exception as exc:
                 self.send_json(500, {"ok": False, "error": str(exc)})
             return
@@ -1587,6 +2314,49 @@ class Handler(SimpleHTTPRequestHandler):
             return
         self.send_json(404, {"ok": False, "error": "Not found"})
 
+    def handle_payment_notify(self, provider: str, payload: dict[str, Any]) -> None:
+        cfg = payment_provider_configs().get(provider)
+        if not cfg or not cfg["enabled"]:
+            self.send_json(400, {"ok": False, "error": "支付通道未配置"})
+            return
+        if not verify_md5_sign(payload, cfg["secret"]):
+            self.send_json(400, {"ok": False, "error": "签名验证失败"})
+            return
+        if provider == "epay":
+            trade_status = str(payload.get("trade_status") or payload.get("status") or "").upper()
+            if trade_status not in {"TRADE_SUCCESS", "SUCCESS", "1"}:
+                self.send_json(200, {"ok": True, "message": "非成功状态已忽略"})
+                return
+            order_no = str(payload.get("out_trade_no") or "").strip()
+            trade_no = str(payload.get("trade_no") or payload.get("api_trade_no") or "").strip()
+            money = payload.get("money")
+        elif provider == "codepay":
+            # 码支付常见字段：pay_id/order_no，money/price，status=1 或缺省但 sign 正确。
+            status = str(payload.get("status") or payload.get("pay_status") or "1").lower()
+            if status not in {"1", "success", "paid", "trade_success"}:
+                self.send_json(200, {"ok": True, "message": "非成功状态已忽略"})
+                return
+            order_no = str(payload.get("pay_id") or payload.get("out_trade_no") or payload.get("order_no") or "").strip()
+            trade_no = str(payload.get("trade_no") or payload.get("transaction_id") or payload.get("pay_no") or "").strip()
+            money = payload.get("money") if payload.get("money") is not None else payload.get("price")
+        else:
+            self.send_json(400, {"ok": False, "error": "不支持的支付通道"})
+            return
+        if not order_no:
+            self.send_json(400, {"ok": False, "error": "缺少订单号"})
+            return
+        applied = apply_paid_order(order_no, provider, money, trade_no, payload)
+        # 易支付/码支付通常要求纯 success；JSON 也便于本地调试。
+        if self.headers.get("Accept", "").find("application/json") >= 0:
+            self.send_json(200, {"ok": True, "applied": applied, "orderNo": order_no})
+        else:
+            data = b"success"
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
     def handle_register(self) -> None:
         try:
             payload = self.read_json(10_000)
@@ -1603,7 +2373,7 @@ class Handler(SimpleHTTPRequestHandler):
             token = create_session(user_id)
             self.send_json(
                 200,
-                {"ok": True, "user": {"id": user_id, "username": username}},
+                {"ok": True, "user": public_user_payload({"id": user_id, "username": username})},
                 {"Set-Cookie": self.session_cookie(token)},
             )
         except sqlite3.IntegrityError:
@@ -1624,7 +2394,7 @@ class Handler(SimpleHTTPRequestHandler):
             token = create_session(int(row["id"]))
             self.send_json(
                 200,
-                {"ok": True, "user": {"id": row["id"], "username": row["username"]}},
+                {"ok": True, "user": public_user_payload({"id": row["id"], "username": row["username"]})},
                 {"Set-Cookie": self.session_cookie(token)},
             )
         except Exception as exc:

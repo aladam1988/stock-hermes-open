@@ -45,6 +45,12 @@
     return isUser ? "USER.md（个人配置）" : "MEMORY.md（个人记忆）";
   }
 
+  function toggleAdminLinks(show) {
+    document.querySelectorAll(".admin-only").forEach((item) => {
+      item.hidden = !show;
+    });
+  }
+
   function cardId(rel) {
     return "card-" + rel.replace(/[^a-zA-Z0-9]/g, "_");
   }
@@ -267,6 +273,7 @@
       throw new Error(data.error || "读取设置失败");
     }
     render(data);
+    toggleAdminLinks(Boolean(data.user?.isAdmin));
     await loadMemoryFiles();
   }
 

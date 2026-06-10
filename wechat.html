@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>公众号发布 · 小牛AI投研</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="settings-page authenticated wechat-page">
+    <main class="settings-shell">
+      <header class="settings-header">
+        <div>
+          <p class="eyebrow">WeChat Official Account</p>
+          <h1>公众号发布</h1>
+          <p>收集站内用户向 Hermes 提出的问题，筛选适合引流的选题，整理成公众号草稿。</p>
+        </div>
+        <div class="settings-actions">
+          <a class="ghost-link" href="./index.html">← 返回研究台</a>
+          <div class="settings-menu">
+            <button class="ghost-button settings-menu-button icon-menu-button" type="button" aria-label="设置" aria-haspopup="true" aria-expanded="false">⚙</button>
+            <div class="settings-menu-panel" role="menu">
+              <a role="menuitem" href="./settings.html">Agent 设置</a>
+              <a role="menuitem" href="./billing.html">支付</a>
+              <a class="admin-only" role="menuitem" href="./wechat.html">公众号</a>
+            </div>
+          </div>
+          <button id="refresh-wechat" class="primary-button" type="button">刷新</button>
+        </div>
+      </header>
+
+      <section id="wechat-status" class="settings-status">正在检查站长权限...</section>
+
+      <section class="settings-grid wechat-grid" id="wechat-content" hidden>
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Official Account Settings</p>
+          <h2>公众号参数</h2>
+          <p class="muted-text">只允许站长账号访问。AppSecret 不会回显；留空表示不修改。</p>
+          <form id="wechat-settings-form" class="wechat-form">
+            <label class="field">
+              <span>AppID</span>
+              <input id="wechat-appid" type="text" placeholder="公众号 AppID" autocomplete="off" />
+            </label>
+            <label class="field">
+              <span>AppSecret</span>
+              <input id="wechat-appsecret" type="password" placeholder="留空则保持原配置" autocomplete="new-password" />
+            </label>
+            <label class="field">
+              <span>作者名</span>
+              <input id="wechat-author" type="text" placeholder="例如：小牛AI投研" />
+            </label>
+            <label class="field">
+              <span>默认摘要</span>
+              <input id="wechat-digest" type="text" placeholder="来自用户问题的美股观察笔记" />
+            </label>
+            <label class="field">
+              <span>封面素材 thumb_media_id</span>
+              <input id="wechat-thumb" type="text" placeholder="公众号后台素材 media_id，用于提交微信草稿" />
+            </label>
+            <button class="primary-button" type="submit">保存公众号参数</button>
+          </form>
+        </article>
+
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Question Pool</p>
+          <h2>适合引流的问题池</h2>
+          <p class="muted-text">系统按主题、问题形式、股票代码、风险词做初筛。只收集站内用户提问，不展示 AI 私密回答。</p>
+          <div id="candidate-list" class="candidate-list"></div>
+        </article>
+
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Draft Builder</p>
+          <h2>生成公众号草稿</h2>
+          <div class="wechat-editor-grid">
+            <label class="field">
+              <span>标题</span>
+              <input id="draft-title" type="text" placeholder="选择问题后可自动填充，也可以自己改" />
+            </label>
+            <label class="field">
+              <span>摘要</span>
+              <input id="draft-digest" type="text" placeholder="公众号摘要，建议 40-80 字" />
+            </label>
+          </div>
+          <label class="field">
+            <span>正文</span>
+            <textarea id="draft-content" rows="16" placeholder="选择几个问题后点击“生成草稿”，这里会出现可复制到公众号后台的正文。"></textarea>
+          </label>
+          <div class="settings-actions left-actions">
+            <button id="build-draft" class="ghost-button" type="button">生成草稿</button>
+            <button id="save-draft" class="primary-button" type="button">保存草稿</button>
+            <button id="publish-draft" class="ghost-button" type="button">提交到微信草稿箱</button>
+          </div>
+        </article>
+
+        <article class="settings-card wide-card">
+          <p class="eyebrow">Drafts</p>
+          <h2>已保存草稿</h2>
+          <div id="post-list" class="post-list"></div>
+        </article>
+      </section>
+    </main>
+
+    <script src="./wechat.js?v=20260608-1"></script>
+  </body>
+</html>

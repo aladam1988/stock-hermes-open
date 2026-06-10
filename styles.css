@@ -1369,7 +1369,96 @@ body {
 }
 
 .deposit-form {
-  max-width: 420px;
+  max-width: 520px;
+}
+
+.payment-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.payment-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-3);
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.payment-options input {
+  width: auto;
+  min-height: 0;
+}
+
+.provider-status,
+.orders-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.provider-pill,
+.order-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-3);
+  padding: 11px 12px;
+}
+
+.provider-pill {
+  align-items: flex-start;
+}
+
+.provider-pill strong,
+.order-row strong {
+  display: block;
+  color: var(--text);
+}
+
+.provider-pill span,
+.order-row span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.provider-pill.ok,
+.order-row.paid {
+  border-color: #bfe7cf;
+  background: #f0fbf4;
+}
+
+.provider-pill.warn,
+.order-row.pending {
+  border-color: #f0dca4;
+  background: #fffdf4;
+}
+
+.order-row em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 5px 9px;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.order-row.paid em {
+  color: #197244;
 }
 
 .billing-grid {
@@ -1912,3 +2001,117 @@ body {
     max-height: none;
   }
 }
+
+.wechat-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.wechat-form {
+  display: grid;
+  gap: 14px;
+}
+
+.wechat-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.left-actions {
+  justify-content: flex-start;
+}
+
+.candidate-list,
+.post-list {
+  display: grid;
+  gap: 12px;
+}
+
+.candidate-card,
+.post-card,
+.empty-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-2);
+}
+
+.post-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.empty-card {
+  display: block;
+  color: var(--muted);
+}
+
+.candidate-card input {
+  margin-top: 4px;
+}
+
+.candidate-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+
+.candidate-head strong,
+.post-card strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.candidate-head em {
+  color: var(--accent);
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.candidate-card p,
+.post-card p,
+.muted-text {
+  color: var(--muted);
+  margin: 6px 0;
+  line-height: 1.7;
+}
+
+.candidate-meta,
+.reason-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.candidate-meta span,
+.reason-tags span,
+.post-card span {
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.55);
+}
+
+#draft-content {
+  min-height: 360px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  line-height: 1.7;
+}
+
+@media (max-width: 760px) {
+  .wechat-editor-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .post-card {
+    grid-template-columns: 1fr;
+  }
+}
+
